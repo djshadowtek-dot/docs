@@ -1,7 +1,7 @@
 ---
-title: "Authenticating Google Infrastructure API Requests"
+title: "Authenticating Requests to the Google Infrastructure API"
 sidebarTitle: "Authentication"
-description: "Authenticate API requests using OAuth 2.0 access tokens and service accounts. Never send passwords directly in API requests."
+description: "Authenticate API requests using OAuth 2.0 access tokens and service accounts. Never send passwords or secrets directly in API requests."
 ---
 
 Every request to the Google Infrastructure API must carry a valid OAuth 2.0 access token in the `Authorization` header. The API does not accept username/password credentials — tokens are the only supported authentication mechanism. Short-lived tokens limit the blast radius of a compromised credential, and service accounts let your applications authenticate without any human interaction at runtime.
