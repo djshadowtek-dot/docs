@@ -1,0 +1,214 @@
+---
+title: "Google Infrastructure Networking Model Overview"
+sidebarTitle: "Networking"
+description: "Understand VPCs, subnets, IP addressing, firewall rules, and routes that form the networking foundation for your Google Infrastructure workloads."
+---
+
+Every workload you deploy on Google Infrastructure runs inside a network you control. That network is built on a **Virtual Private Cloud (VPC)** — a logically isolated, software-defined network that spans all of Google's global infrastructure. Your VPC is the foundation for compute connectivity, security policy enforcement, and traffic routing, so understanding its components helps you design networks that are secure, scalable, and operationally straightforward.
+
+## Virtual Private Cloud (VPC)
+
+A VPC is a global resource: it has no region affiliation itself, but it contains subnets that do. When you create a VPC you choose between two subnet modes:
+
+- **Auto mode** — Google automatically creates one subnet per region using a set of predefined CIDR ranges. Convenient for getting started, but less flexible for custom addressing.
+- **Custom mode** — You define every subnet, its region, and its CIDR range manually. Use custom mode for production workloads where address space planning matters.
+
+<CodeGroup>
+  ```bash Create a custom VPC
+  gcloud compute networks create my-vpc --subnet-mode=custom
+  ```
+
+  ```bash List all VPCs in a project
+  gcloud compute networks list --project=my-project
+  ```
+
+  ```bash Describe a VPC
+  gcloud compute networks describe my-vpc --project=my-project
+  ```
+</CodeGroup>
+
+VPCs are **global** — a single VPC spans all regions, and resources in different regions can communicate over the VPC without traversing the public internet.
+
+## Subnets
+
+Subnets are **regional** subdivisions of a VPC. Each subnet defines a CIDR range and lives in exactly one region. VM instances and other resources are assigned IP addresses from the subnet's range when they are placed in that region.
+
+```bash
+gcloud compute networks subnets create my-subnet \
+  --network=my-vpc \
+  --region=us-central1 \
+  --range=10.0.0.0/24
+```
+
+Key subnet properties to configure:
+
+<CardGroup cols={2}>
+  <Card title="Primary CIDR Range" icon="network-wired" href="/concepts/networking">
+    The main IP address block assigned to the subnet. Resources in the subnet receive addresses from this range.
+  </Card>
+  <Card title="Secondary Ranges" icon="code-branch" href="/concepts/networking">
+    Additional CIDR blocks attached to a subnet, used for alias IPs — common in Kubernetes pod and service networking.
+  </Card>
+  <Card title="Private Google Access" icon="lock" href="/concepts/networking">
+    Allows VMs without external IP addresses to reach Google APIs and services over Google's internal network.
+  </Card>
+  <Card title="Flow Logs" icon="chart-line" href="/concepts/networking">
+    Capture metadata about network flows in the subnet for security analysis, forensics, and cost optimization.
+  </Card>
+</CardGroup>
+
+<Note>
+  Subnet CIDR ranges cannot overlap within the same VPC. Plan your address space before you create subnets — expanding a subnet's range is supported, but shrinking it is not.
+</Note>
+
+## IP Addressing
+
+Resources in your VPC use two categories of IP address:
+
+**Internal (private) IPs** are assigned from your subnet's CIDR range. They are only reachable within your VPC (or connected networks) and are used for all east-west traffic between your resources.
+
+**External (public) IPs** are routable on the public internet and assigned to resources that need to be reachable from outside your VPC — such as load balancers or bastion hosts.
+
+Both internal and external IPs can be **ephemeral** or **static**:
+
+<Tabs>
+  <Tab title="Ephemeral IPs">
+    Assigned automatically when the resource is created and released when the resource is deleted or stopped. Use ephemeral IPs for workloads where the specific IP address does not matter — for example, backend instances behind a load balancer.
+
+    ```bash
+    gcloud compute instances create my-vm \
+      --network=my-vpc \
+      --subnet=my-subnet \
+      --zone=us-central1-a
+    # External IP is assigned automatically (ephemeral)
+    ```
+  </Tab>
+  <Tab title="Static IPs">
+    Reserved in advance and persist independently of any resource. Assign a static IP when you need a stable, predictable address — such as for a public-facing API endpoint or a VPN gateway.
+
+    ```bash
+    # Reserve a static external IP
+    gcloud compute addresses create my-static-ip \
+      --region=us-central1
+
+    # Assign it to a VM at creation
+    gcloud compute instances create my-vm \
+      --address=my-static-ip \
+      --zone=us-central1-a
+    ```
+  </Tab>
+</Tabs>
+
+## Firewall Rules
+
+Firewall rules control which traffic is allowed to reach your resources. Every VPC comes with two implied rules that you cannot delete: one that **denies all ingress** and one that **allows all egress**. All additional rules you create either add permissions on top of those defaults or tighten egress behavior.
+
+Each firewall rule specifies:
+
+- **Direction** — `INGRESS` (inbound to your VM) or `EGRESS` (outbound from your VM)
+- **Action** — `ALLOW` or `DENY`
+- **Priority** — A number between 0 and 65535; lower numbers take precedence
+- **Target** — Which resources the rule applies to, specified by network tags or service accounts
+- **Source/destination filters** — IP ranges, tags, or service accounts that define where traffic originates or is destined
+
+<CodeGroup>
+  ```bash Allow HTTP traffic to web servers
+  gcloud compute firewall-rules create allow-http \
+    --network=my-vpc \
+    --direction=INGRESS \
+    --action=ALLOW \
+    --rules=tcp:80 \
+    --source-ranges=0.0.0.0/0 \
+    --target-tags=http-server
+  ```
+
+  ```bash Allow internal traffic between all VMs in the VPC
+  gcloud compute firewall-rules create allow-internal \
+    --network=my-vpc \
+    --direction=INGRESS \
+    --action=ALLOW \
+    --rules=all \
+    --source-ranges=10.0.0.0/8
+  ```
+
+  ```bash Deny all ingress from a specific IP block
+  gcloud compute firewall-rules create deny-suspicious-range \
+    --network=my-vpc \
+    --direction=INGRESS \
+    --action=DENY \
+    --rules=all \
+    --source-ranges=192.0.2.0/24 \
+    --priority=500
+  ```
+</CodeGroup>
+
+<Warning>
+  Avoid creating firewall rules that allow `0.0.0.0/0` (all sources) on administrative ports such as SSH (22) or RDP (3389). Instead, restrict access to known IP ranges or use Identity-Aware Proxy (IAP) for zero-trust access to your VMs.
+</Warning>
+
+## Routes
+
+Routes tell Google Infrastructure how to forward packets from your VMs. Every VPC is automatically populated with:
+
+- A **default route** (`0.0.0.0/0`) that sends internet-bound traffic to the default internet gateway
+- **Subnet routes** for every subnet CIDR, so VMs can reach each other without additional configuration
+
+You can add custom routes to override default behavior — for example, to send all internet traffic through a NAT appliance or to route specific CIDR ranges over a VPN tunnel:
+
+```bash
+gcloud compute routes create route-to-vpn \
+  --network=my-vpc \
+  --destination-range=172.16.0.0/12 \
+  --next-hop-vpn-tunnel=my-vpn-tunnel \
+  --next-hop-vpn-tunnel-region=us-central1 \
+  --priority=100
+```
+
+Routes are evaluated in priority order — lower priority numbers are preferred. When two routes match the same destination, the more specific prefix (longer mask) wins regardless of priority.
+
+## Shared VPC
+
+Shared VPC lets you connect multiple projects through a single **host project** that owns the VPC network. Other projects — called **service projects** — attach to the host VPC and deploy their resources (VMs, GKE clusters, etc.) into subnets defined by the host.
+
+This model is well suited for large organizations that want centralized network administration while allowing individual teams to operate their own projects:
+
+<Steps>
+  <Step title="Designate a host project">
+    Enable Shared VPC on the project that will own the network:
+
+    ```bash
+    gcloud compute shared-vpc enable my-host-project
+    ```
+  </Step>
+  <Step title="Attach service projects">
+    Connect each service project to the host:
+
+    ```bash
+    gcloud compute shared-vpc associated-projects add my-service-project \
+      --host-project=my-host-project
+    ```
+  </Step>
+  <Step title="Grant subnet permissions">
+    Give the service project's principals permission to use specific subnets in the host VPC via IAM bindings on the subnet resource.
+  </Step>
+  <Step title="Deploy resources into shared subnets">
+    Service project owners create VMs and other resources specifying the host project's network and subnet:
+
+    ```bash
+    gcloud compute instances create my-vm \
+      --network=projects/my-host-project/global/networks/my-vpc \
+      --subnet=projects/my-host-project/regions/us-central1/subnetworks/my-subnet \
+      --zone=us-central1-a
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+  Enable **Private Google Access** on your subnets so that VMs without external IP addresses can still reach Google APIs — such as Cloud Storage, BigQuery, and Pub/Sub — over Google's internal network. This eliminates the need for a NAT gateway just to call Google services, reducing both cost and attack surface.
+
+  ```bash
+  gcloud compute networks subnets update my-subnet \
+    --region=us-central1 \
+    --enable-private-ip-google-access
+  ```
+</Tip>

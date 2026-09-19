@@ -1,0 +1,177 @@
+---
+title: "Google Infrastructure Architecture Overview"
+sidebarTitle: "Architecture"
+description: "Understand how Google Infrastructure's global regions, zones, projects, and core services are structured so you can design reliable, scalable workloads."
+---
+
+Google Infrastructure runs on a privately owned global network that spans dozens of regions, hundreds of zones, and thousands of edge points of presence. Understanding how these physical and logical layers fit together helps you make informed decisions about where to place resources, how to connect them, and how to govern access — before you write a single line of configuration.
+
+## Global Footprint
+
+Google Infrastructure divides its physical presence into three nested tiers.
+
+**Regions** are independent geographic areas, each located in a distinct part of the world (for example, `us-central1` in Iowa or `europe-west1` in Belgium). Deploying resources across multiple regions protects your workload against regional outages and reduces latency for end users in different locations.
+
+**Zones** are isolated failure domains within a region. A region contains at least three zones, named with a letter suffix such as `us-central1-a`, `us-central1-b`, and `us-central1-c`. Each zone has independent power, cooling, and networking so that a failure in one zone does not affect the others. Place replicas of stateful services across multiple zones to achieve high availability within a region.
+
+**Edge Points of Presence (PoPs)** sit at the boundary between Google's private backbone and the public internet. Traffic from your end users enters Google's network at the nearest PoP and travels over the private backbone to the region hosting your application, minimizing public-internet hops and improving throughput and latency.
+
+<Info>
+  Google Infrastructure maintains an SLA of 99.99% monthly uptime for multi-zone deployments. Single-zone deployments carry a 99.9% SLA. Review the SLA documentation for each service before finalizing your architecture.
+</Info>
+
+## Core Building Blocks
+
+Every workload on Google Infrastructure is assembled from five foundational primitives. Learn these building blocks and you can reason about any service the platform offers.
+
+### Projects
+
+A **project** is the fundamental organizational unit on Google Infrastructure. Every resource — a virtual machine, a storage bucket, a VPC — must belong to exactly one project. Projects provide an isolated namespace for resources and serve as the boundary for:
+
+- **Billing** — charges aggregate at the project level.
+- **Quotas** — per-resource limits are tracked per project.
+- **IAM policies** — access controls applied to a project are inherited by all resources within it.
+- **APIs** — each service API must be explicitly enabled per project before resources can be created.
+
+### Virtual Private Cloud (VPC)
+
+A **VPC** is a logically isolated virtual network that you define inside a project. VPCs span all regions globally by default and contain subnets, firewall rules, and routes. Every compute resource you provision attaches to a subnet inside a VPC and receives a private IP address. You control inbound and outbound traffic at the subnet and instance level using firewall rules, and you can peer VPCs across projects to enable private communication between environments.
+
+### Identity and Access Management (IAM)
+
+**IAM** is the authorization layer that controls who can do what with which resources. You grant **roles** — collections of permissions — to **principals** (users, service accounts, or groups). Roles can be applied at the organization, folder, project, or individual resource level, and permissions flow downward through the hierarchy. Following least-privilege principles, you should grant principals only the roles required for their specific responsibilities.
+
+### Compute
+
+**Compute Engine** provides virtual machine instances that run on Google's physical servers. You choose a **machine type** that specifies vCPU count and memory, select a boot disk image, attach the instance to a subnet, and the instance starts within seconds. Managed Instance Groups (MIGs) let you run identical instances behind a load balancer and configure autoscaling policies that add or remove instances based on CPU utilization, request rate, or custom metrics.
+
+### Storage
+
+Google Infrastructure offers multiple storage classes to match different access patterns:
+
+- **Cloud Storage** (object storage) — durable, globally accessible storage for blobs, backups, and static assets.
+- **Persistent Disk** (block storage) — network-attached block devices that attach to Compute Engine instances.
+- **Filestore** (file storage) — a managed NFS service for workloads that require a shared POSIX file system.
+
+<CardGroup cols={2}>
+  <Card title="Resources" icon="layer-group" href="/concepts/resources">
+    Learn how resources are named, labeled, and organized within and across projects.
+  </Card>
+  <Card title="Networking" icon="network-wired" href="/concepts/networking">
+    Dive deeper into VPCs, subnets, firewall rules, load balancing, and Cloud DNS.
+  </Card>
+  <Card title="Identity & Access" icon="shield-halved" href="/concepts/identity-access">
+    Master IAM roles, service accounts, workforce identity federation, and audit logging.
+  </Card>
+  <Card title="Regions & Zones" icon="globe" href="/concepts/regions-zones">
+    Browse the full list of regions and zones and understand how to choose the right locations.
+  </Card>
+</CardGroup>
+
+## Resource Hierarchy
+
+Google Infrastructure enforces a strict parent-child hierarchy that governs policy inheritance and resource ownership.
+
+<Info>
+  The hierarchy flows from top to bottom: **Organization → Folder → Project → Resources**. IAM policies and organizational constraints set at a higher level automatically apply to every node below it. For example, an IAM policy binding on a Folder grants access to every Project inside that Folder and to every resource those Projects contain. This hierarchy means you can manage governance at scale without setting permissions on each individual resource.
+</Info>
+
+| Level | Description |
+|---|---|
+| **Organization** | The root node, tied to your Google Workspace or Cloud Identity domain. All assets in your enterprise live under a single Organization. |
+| **Folder** | An optional grouping layer used to mirror your organizational structure — for example, one Folder per business unit or per environment (production, staging, development). |
+| **Project** | The primary container for resources, billing, and quotas. Most teams work at the Project level day-to-day. |
+| **Resources** | Individual cloud assets such as VM instances, storage buckets, VPCs, and databases. Each resource inherits policies from its Project and all ancestors. |
+
+## Accessing the Platform
+
+You can interact with every layer of Google Infrastructure through three equally capable interfaces. Choose the one that fits your workflow — they all reach the same underlying APIs.
+
+<Tabs>
+  <Tab title="Console">
+    The **Google Cloud Console** at [console.cloud.google.com](https://console.cloud.google.com) provides a web-based graphical interface for browsing, creating, and managing resources. It is best suited for exploration, visual monitoring, and one-off administrative tasks.
+
+    ```
+    1. Sign in at console.cloud.google.com
+    2. Select your project from the top navigation bar
+    3. Navigate to the relevant product section (e.g., Compute Engine, Cloud Storage)
+    4. Use the Create button to provision resources through guided forms
+    ```
+
+    The console also includes Cloud Shell — a browser-based terminal pre-loaded with `gcloud` and other tools — so you can run CLI commands without installing anything locally.
+  </Tab>
+  <Tab title="CLI">
+    The **`gcloud` CLI** is the recommended tool for scripting, automation, and interactive terminal workflows. Install it once and use it to manage every resource type.
+
+    ```bash
+    # Authenticate and set your project
+    gcloud auth login
+    gcloud config set project PROJECT_ID
+
+    # Create a VPC network
+    gcloud compute networks create my-vpc --subnet-mode=custom
+
+    # Create a subnet inside the VPC
+    gcloud compute networks subnets create my-subnet \
+      --network=my-vpc \
+      --region=us-central1 \
+      --range=10.0.0.0/24
+
+    # Launch a compute instance attached to the subnet
+    gcloud compute instances create my-instance \
+      --zone=us-central1-a \
+      --machine-type=e2-standard-4 \
+      --subnet=my-subnet
+    ```
+
+    Use `gcloud --help` or `gcloud COMMAND --help` to explore available flags and sub-commands for any resource type.
+  </Tab>
+  <Tab title="API">
+    Every operation the console and CLI perform is backed by a versioned **REST or gRPC API**. Call the API directly when you need fine-grained control, when you are building integrations, or when you are generating infrastructure from application code.
+
+    ```bash
+    # Obtain an OAuth 2.0 access token
+    ACCESS_TOKEN=$(gcloud auth print-access-token)
+
+    # List all compute instances in a project and zone via REST
+    curl -s \
+      -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+      "https://compute.googleapis.com/compute/v1/projects/PROJECT_ID/zones/us-central1-a/instances"
+    ```
+
+    ```python
+    # Use the Python client library for a more idiomatic experience
+    from google.cloud import compute_v1
+
+    client = compute_v1.InstancesClient()
+    instances = client.list(project="PROJECT_ID", zone="us-central1-a")
+
+    for instance in instances:
+        print(instance.name, instance.status)
+    ```
+
+    <Note>
+      Enable the relevant service API for your project before making API calls. For example, run `gcloud services enable compute.googleapis.com` to enable the Compute Engine API. The console enables APIs automatically when you first use a product through its UI.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Key Design Principles
+
+Keep these principles in mind as you design workloads on Google Infrastructure.
+
+<Accordion title="Design for zone-level failure">
+  Assume that any individual zone can become unavailable at any time. Distribute stateful components — databases, caches, message queues — across at least two zones within the same region. Use managed instance groups with multi-zone configuration for stateless compute tiers. For disaster recovery, replicate critical data to a second region and document your failover runbook.
+</Accordion>
+
+<Accordion title="Enforce least-privilege IAM from day one">
+  Grant the minimum IAM role required for each principal to perform its function. Use service accounts for workloads running on Compute Engine rather than user credentials. Audit IAM policy bindings regularly with the Policy Analyzer and rotate service account keys on a schedule or migrate to workload identity federation to eliminate long-lived key material entirely.
+</Accordion>
+
+<Accordion title="Prefer managed services over self-managed infrastructure">
+  Google Infrastructure provides managed equivalents for most infrastructure components — managed databases, managed Kubernetes, managed load balancers, and managed identity. Managed services reduce operational burden, include built-in SLAs, and integrate natively with IAM and Cloud Monitoring. Choose a managed service first and fall back to self-managed only when you have a specific requirement the managed option cannot satisfy.
+</Accordion>
+
+<Accordion title="Tag and label every resource">
+  Apply consistent labels to every resource you create — at minimum `environment` (production, staging, development), `team`, and `cost-center`. Labels enable you to filter resources in the console, write precise IAM conditions, and break down billing by dimension in the billing export. Establish a labeling standard before your first production deployment; retrofitting labels is significantly harder.
+</Accordion>

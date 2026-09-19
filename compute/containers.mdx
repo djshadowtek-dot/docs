@@ -1,0 +1,197 @@
+---
+title: "Running Containerized Workloads with Google Kubernetes Engine"
+sidebarTitle: "Containers"
+description: "Deploy and manage containerized applications on Google Kubernetes Engine, including cluster creation, node pools, workload deployment, and Workload Identity."
+---
+
+Google Kubernetes Engine (GKE) provides a fully managed Kubernetes environment running on Google Infrastructure. GKE handles the control plane, node upgrades, security patching, and scaling so that you focus on building and deploying containerized applications rather than managing cluster infrastructure.
+
+## Cluster Modes
+
+GKE offers two operating modes. Choose the mode that matches your team's operational preferences and the level of control you need over the underlying nodes.
+
+<CardGroup cols={2}>
+  <Card title="Autopilot" icon="wand-magic-sparkles" href="/compute/containers#autopilot">
+    Google manages the entire cluster infrastructure, including node provisioning, scaling, and security hardening. You pay per Pod rather than per node. Autopilot enforces security best practices by default and is the recommended starting point for most teams.
+  </Card>
+  <Card title="Standard" icon="sliders" href="/compute/containers#standard">
+    You control node pools, machine types, OS images, and cluster configuration. Standard mode gives you flexibility for workloads that require specific hardware accelerators, custom node images, or advanced networking configurations.
+  </Card>
+</CardGroup>
+
+## Node Pools
+
+In Standard mode, a cluster contains one or more **node pools** — groups of nodes that share the same machine type, OS image, disk configuration, and labels. You can add, resize, or delete node pools independently, which lets you run heterogeneous workloads (e.g., CPU-intensive batch jobs alongside memory-optimized services) within the same cluster.
+
+```bash
+# Add a GPU node pool to an existing cluster
+gcloud container node-pools create gpu-pool \
+  --cluster=my-cluster \
+  --zone=us-central1-a \
+  --machine-type=n1-standard-4 \
+  --accelerator=type=nvidia-tesla-t4,count=1 \
+  --num-nodes=2
+```
+
+<Info>
+  Node pools support **autoscaling** independently of each other. Set `--enable-autoscaling` with `--min-nodes` and `--max-nodes` when creating a pool, and GKE will add or remove nodes in that pool based on pending Pod requests.
+</Info>
+
+## Autopilot vs. Standard Cluster Creation
+
+<Tabs>
+  <Tab title="Autopilot Cluster">
+    Create an Autopilot cluster with a single command. GKE provisions and manages all nodes on your behalf.
+
+    ```bash
+    gcloud container clusters create-auto my-autopilot-cluster \
+      --region=us-central1
+    ```
+
+    After the cluster is ready, retrieve credentials so that `kubectl` can communicate with it:
+
+    ```bash
+    gcloud container clusters get-credentials my-autopilot-cluster \
+      --region=us-central1
+    ```
+
+    Autopilot clusters are **regional** by default, so your workloads are automatically distributed across multiple zones for high availability.
+  </Tab>
+  <Tab title="Standard Cluster">
+    Create a Standard zonal cluster and specify the number of nodes per zone:
+
+    ```bash
+    gcloud container clusters create my-cluster \
+      --zone=us-central1-a \
+      --num-nodes=3 \
+      --machine-type=e2-standard-4 \
+      --disk-size=100GB
+    ```
+
+    Retrieve credentials after the cluster reaches the `RUNNING` state:
+
+    ```bash
+    gcloud container clusters get-credentials my-cluster \
+      --zone=us-central1-a
+    ```
+  </Tab>
+</Tabs>
+
+## Deploying an Application to GKE
+
+<Steps>
+  <Step title="Create a cluster">
+    Provision a Standard zonal cluster with three nodes in `us-central1-a`:
+
+    ```bash
+    gcloud container clusters create my-cluster \
+      --zone=us-central1-a \
+      --num-nodes=3
+    ```
+  </Step>
+  <Step title="Get credentials">
+    Configure `kubectl` to connect to your new cluster by fetching its credentials into your local kubeconfig:
+
+    ```bash
+    gcloud container clusters get-credentials my-cluster \
+      --zone=us-central1-a
+    ```
+  </Step>
+  <Step title="Deploy an application">
+    Create a Deployment using the sample `hello-app` container image. Kubernetes schedules the Pod on an available node in the cluster.
+
+    ```bash
+    kubectl create deployment hello-app \
+      --image=gcr.io/google-samples/hello-app:1.0
+    ```
+  </Step>
+  <Step title="Expose the Deployment via a LoadBalancer">
+    Create a Service of type `LoadBalancer` to provision a Google Cloud external load balancer and route traffic to your Pods on port 80:
+
+    ```bash
+    kubectl expose deployment hello-app \
+      --type=LoadBalancer \
+      --port=80 \
+      --target-port=8080
+    ```
+  </Step>
+  <Step title="Get the external IP address">
+    Wait for the load balancer to finish provisioning (this typically takes 1–2 minutes), then retrieve the external IP address assigned to your Service:
+
+    ```bash
+    kubectl get service hello-app
+    ```
+
+    Look for the value in the `EXTERNAL-IP` column. Open `http://<EXTERNAL-IP>` in a browser to verify the application is serving traffic.
+  </Step>
+</Steps>
+
+## Managing Workloads
+
+Once your application is running, use standard `kubectl` commands to inspect and manage it:
+
+<CodeGroup>
+```bash Check Pod status
+kubectl get pods -o wide
+```
+
+```bash View application logs
+kubectl logs -l app=hello-app --tail=100
+```
+
+```bash Scale the Deployment
+kubectl scale deployment hello-app --replicas=5
+```
+
+```bash Roll out a new image version
+kubectl set image deployment/hello-app \
+  hello-app=gcr.io/google-samples/hello-app:2.0
+```
+
+```bash Delete the Deployment and Service
+kubectl delete deployment hello-app
+kubectl delete service hello-app
+```
+</CodeGroup>
+
+## Workload Identity
+
+<Tip>
+  Use **Workload Identity** to grant Pods secure, credential-free access to Google APIs (Cloud Storage, Pub/Sub, Secret Manager, etc.) without storing service account keys inside your containers or cluster.
+
+  Workload Identity links a Kubernetes ServiceAccount to a Google Service Account using an IAM binding. Pods that use the annotated Kubernetes ServiceAccount automatically receive short-lived tokens scoped to the bound Google Service Account.
+
+  ```bash
+  # Enable Workload Identity on an existing cluster
+  gcloud container clusters update my-cluster \
+    --zone=us-central1-a \
+    --workload-pool=MY_PROJECT_ID.svc.id.goog
+
+  # Annotate the Kubernetes ServiceAccount
+  kubectl annotate serviceaccount my-ksa \
+    iam.gke.io/gcp-service-account=my-gsa@MY_PROJECT_ID.iam.gserviceaccount.com
+
+  # Grant the IAM binding
+  gcloud iam service-accounts add-iam-policy-binding \
+    my-gsa@MY_PROJECT_ID.iam.gserviceaccount.com \
+    --role=roles/iam.workloadIdentityUser \
+    --member="serviceAccount:MY_PROJECT_ID.svc.id.goog[default/my-ksa]"
+  ```
+
+  Replace `MY_PROJECT_ID` with your Google Cloud project ID. This eliminates the operational burden and security risk of long-lived service account key files.
+</Tip>
+
+## Cluster Upgrades
+
+GKE automatically upgrades control plane components during maintenance windows. To keep your node pools on a supported version, enable auto-upgrade:
+
+```bash
+gcloud container node-pools update default-pool \
+  --cluster=my-cluster \
+  --zone=us-central1-a \
+  --enable-autoupgrade
+```
+
+<Warning>
+  Node auto-upgrades perform a rolling replacement of nodes, which causes Pods to be rescheduled. Ensure your Deployments have `PodDisruptionBudgets` configured and run at least two replicas so that a node drain does not take your application offline during an upgrade.
+</Warning>

@@ -1,0 +1,143 @@
+---
+title: "Google Infrastructure Python SDK: Getting Started"
+sidebarTitle: "Python"
+description: "Install and use the Google Infrastructure Python client libraries to manage compute instances, Cloud Storage, and IAM from your Python applications."
+---
+
+The Google Infrastructure Python SDK is a collection of `google-cloud-*` packages published on PyPI. Each package corresponds to a Google Infrastructure service, so you install only what your application needs. The libraries are fully type-annotated, support both synchronous and asynchronous clients, and integrate seamlessly with Application Default Credentials.
+
+## Install the libraries
+
+Install the packages for the services you plan to use. The example below covers compute, storage, and IAM — the most common starting point.
+
+```bash
+pip install google-cloud-compute google-cloud-storage google-cloud-iam
+```
+
+## Authenticate with ADC
+
+The Python SDK uses **Application Default Credentials** automatically. You do not write any authentication code — you simply import the client and it resolves credentials from the environment.
+
+```python
+# Option 1: set GOOGLE_APPLICATION_CREDENTIALS to a service account key file
+# export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+
+# Option 2: authenticate interactively for local development
+# gcloud auth application-default login
+
+from google.cloud import compute_v1
+
+# The client picks up credentials automatically
+instances_client = compute_v1.InstancesClient()
+```
+
+## Create a VM instance
+
+The following function creates a Compute Engine instance with a Debian boot disk attached to the default network.
+
+```python
+from google.cloud import compute_v1
+
+def create_instance(project_id: str, zone: str, instance_name: str):
+    instances_client = compute_v1.InstancesClient()
+
+    instance = compute_v1.Instance()
+    instance.name = instance_name
+    instance.machine_type = f"zones/{zone}/machineTypes/e2-standard-4"
+
+    disk = compute_v1.AttachedDisk()
+    disk.boot = True
+    disk.auto_delete = True
+    initialize_params = compute_v1.AttachedDiskInitializeParams()
+    initialize_params.source_image = "projects/debian-cloud/global/images/family/debian-11"
+    disk.initialize_params = initialize_params
+
+    network_interface = compute_v1.NetworkInterface()
+    network_interface.network = "global/networks/default"
+
+    instance.disks = [disk]
+    instance.network_interfaces = [network_interface]
+
+    operation = instances_client.insert(
+        project=project_id, zone=zone, instance_resource=instance
+    )
+    operation.result()  # blocks until the operation completes
+    print(f"Instance {instance_name} created.")
+```
+
+Call the function with your project ID, target zone, and a name for the new instance:
+
+```python
+create_instance(
+    project_id="my-gcp-project",
+    zone="us-central1-a",
+    instance_name="web-server-01",
+)
+```
+
+## Upload a file to Cloud Storage
+
+The `google-cloud-storage` library provides a straightforward API for uploading and downloading objects.
+
+```python
+from google.cloud import storage
+
+def upload_blob(bucket_name: str, source_file: str, destination_blob: str):
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(destination_blob)
+    blob.upload_from_filename(source_file)
+    print(f"File {source_file} uploaded to {destination_blob}.")
+```
+
+To upload in-memory content instead of a file on disk, use `upload_from_string`:
+
+```python
+blob.upload_from_string(b"hello world", content_type="text/plain")
+```
+
+## Handle errors
+
+The `google.api_core.exceptions` module exposes typed exception classes so you can handle specific error conditions cleanly.
+
+```python
+from google.api_core.exceptions import GoogleAPICallError, NotFound
+
+try:
+    instance = instances_client.get(
+        project=project_id, zone=zone, instance=instance_name
+    )
+except NotFound:
+    print("Instance not found")
+except GoogleAPICallError as e:
+    print(f"API error: {e.message}")
+```
+
+Common exception classes include:
+
+| Exception | HTTP status | Typical cause |
+|---|---|---|
+| `NotFound` | 404 | Resource does not exist |
+| `AlreadyExists` | 409 | Resource already created |
+| `PermissionDenied` | 403 | Missing IAM permission |
+| `ResourceExhausted` | 429 | Quota or rate limit hit |
+| `InvalidArgument` | 400 | Bad request parameters |
+
+<Tip>
+  For high-throughput applications that issue many API calls concurrently, switch to the async client variant. Async clients expose the same methods but return awaitables that work with `asyncio`:
+
+  ```python
+  import asyncio
+  from google.cloud import compute_v1
+
+  async def list_instances_async(project_id: str, zone: str):
+      async_client = compute_v1.InstancesAsyncClient()
+      pager = await async_client.list(project=project_id, zone=zone)
+      async for instance in pager:
+          print(instance.name)
+
+  asyncio.run(list_instances_async("my-gcp-project", "us-central1-a"))
+  ```
+
+  Async clients use the same ADC authentication and the same exception hierarchy as their synchronous counterparts.
+</Tip>

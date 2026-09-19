@@ -1,0 +1,154 @@
+---
+title: "Installing the Google Cloud CLI (gcloud)"
+sidebarTitle: "Installation"
+description: "Install and initialize the gcloud CLI on macOS, Linux, or Windows to manage Google Infrastructure resources from your terminal."
+---
+
+The Google Cloud CLI (`gcloud`) gives you full control over Google Infrastructure directly from your terminal. Use it to manage compute instances, configure networking, handle storage, set up IAM policies, and automate operations — all without leaving the command line.
+
+<Note>
+  The Google Cloud CLI requires **Python 3.8 or later**. Before installing, verify your Python version by running `python3 --version`. If you need to upgrade, visit [python.org](https://www.python.org/downloads/).
+</Note>
+
+## Install the CLI
+
+Choose the installation method that matches your operating system and workflow.
+
+<Tabs>
+  <Tab title="macOS (Homebrew)">
+    The fastest way to install on macOS is via [Homebrew](https://brew.sh). This method also makes it easy to update the SDK alongside your other packages.
+
+    ```bash
+    brew install --cask google-cloud-sdk
+    ```
+
+    After the cask installs, restart your terminal or reload your shell profile to put `gcloud` on your `PATH`.
+  </Tab>
+
+  <Tab title="macOS (Manual)">
+    If you prefer not to use Homebrew, download the SDK archive directly from Google and run the bundled install script.
+
+    <Steps>
+      <Step title="Download the archive">
+        Visit the [Cloud SDK releases page](https://cloud.google.com/sdk/docs/downloads-versioned-archives) and download the `.tar.gz` archive for your CPU architecture (x86_64 or arm).
+      </Step>
+      <Step title="Extract the archive">
+        ```bash
+        tar -xf google-cloud-cli-*.tar.gz
+        ```
+      </Step>
+      <Step title="Run the install script">
+        ```bash
+        ./google-cloud-sdk/install.sh
+        ```
+
+        The script adds `gcloud` to your `PATH` and optionally enables shell completion. Restart your terminal after it completes.
+      </Step>
+    </Steps>
+  </Tab>
+
+  <Tab title="Linux (Debian/Ubuntu)">
+    Add the Google Cloud package repository and install via `apt`.
+
+    <Steps>
+      <Step title="Add the Cloud SDK repository">
+        ```bash
+        echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
+        ```
+      </Step>
+      <Step title="Import the Google signing key">
+        ```bash
+        curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
+        ```
+      </Step>
+      <Step title="Update and install">
+        ```bash
+        sudo apt-get update && sudo apt-get install google-cloud-cli
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+
+  <Tab title="Linux (RPM-based)">
+    On Fedora, RHEL, CentOS Stream, or other RPM-based distributions, install using `dnf`.
+
+    <Steps>
+      <Step title="Add the Cloud SDK repository">
+        ```bash
+        sudo tee /etc/yum.repos.d/google-cloud-sdk.repo <<EOF
+        [google-cloud-cli]
+        name=Google Cloud CLI
+        baseurl=https://packages.cloud.google.com/yum/repos/cloud-sdk-el9-x86_64
+        enabled=1
+        gpgcheck=1
+        repo_gpgcheck=0
+        gpgkey=https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+        EOF
+        ```
+      </Step>
+      <Step title="Install the CLI">
+        ```bash
+        sudo dnf install google-cloud-cli
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+
+  <Tab title="Windows">
+    On Windows, download and run the interactive Cloud SDK installer.
+
+    <Steps>
+      <Step title="Download the installer">
+        Go to the [Cloud SDK Windows installer page](https://cloud.google.com/sdk/docs/downloads-interactive) and download the `.exe` installer.
+      </Step>
+      <Step title="Run the installer">
+        Launch the `.exe` and follow the on-screen prompts. The installer adds `gcloud` to your system `PATH` and optionally installs Python if it is not already present.
+      </Step>
+      <Step title="Open a new terminal">
+        Open a new **Command Prompt** or **PowerShell** window so that the updated `PATH` takes effect.
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Verify the installation
+
+Confirm that `gcloud` is on your `PATH` and check which version was installed.
+
+```bash
+gcloud version
+```
+
+You should see output listing the Cloud SDK version alongside the versions of any bundled components.
+
+## Initialize the CLI
+
+Run `gcloud init` to authenticate, set a default project, and configure a default compute region and zone through an interactive wizard.
+
+```bash
+gcloud init
+```
+
+The wizard walks you through the following steps:
+
+1. **Log in** — opens a browser window for OAuth authentication.
+2. **Select a project** — choose from the projects associated with your account.
+3. **Set a default region/zone** — pick the compute region and zone you use most often.
+
+## Update to the latest version
+
+Keep your CLI current to access new commands and bug fixes.
+
+```bash
+gcloud components update
+```
+
+<Tip>
+  You can extend the CLI with additional components for Kubernetes, pre-release features, and more. Install them in one command:
+
+  ```bash
+  gcloud components install kubectl beta alpha
+  ```
+
+  Run `gcloud components list` at any time to see all available components and their installation status.
+</Tip>

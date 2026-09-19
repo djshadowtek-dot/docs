@@ -1,0 +1,142 @@
+---
+title: "Encryption at Rest and in Transit on Google Infrastructure"
+sidebarTitle: "Encryption"
+description: "Understand and configure encryption options for data at rest and in transit, including Google-managed, customer-managed, and customer-supplied keys."
+---
+
+All data stored on Google Infrastructure is encrypted at rest by default using AES-256, with no configuration required from you. Encryption in transit is equally automatic — every byte that moves between your clients and Google services, and between Google services internally, travels over TLS 1.2 or higher. Beyond these solid defaults, Google Infrastructure gives you additional layers of control through Customer-Managed Encryption Keys (CMEK) and Customer-Supplied Encryption Keys (CSEK), letting you own and govern the keys that protect your most sensitive data.
+
+## Encryption at Rest
+
+Google Infrastructure uses envelope encryption: your data is encrypted with a data encryption key (DEK), and the DEK itself is encrypted with a key encryption key (KEK) managed in a secure key management system. The approach you take to managing KEKs determines how much control you retain over your data.
+
+<CardGroup cols={3}>
+  <Card title="Google-Managed Keys" icon="key" href="https://cloud.google.com/docs/security/encryption/default-encryption">
+    Keys are created, stored, and rotated automatically by Google. No configuration required. Suitable for most workloads.
+  </Card>
+  <Card title="Customer-Managed Keys (CMEK)" icon="lock" href="https://cloud.google.com/docs/security/encryption/customer-managed-encryption">
+    You create and manage keys in Cloud KMS. You control rotation, access, and can disable or destroy keys at any time.
+  </Card>
+  <Card title="Customer-Supplied Keys (CSEK)" icon="shield-keyhole" href="https://cloud.google.com/docs/security/encryption/customer-supplied-encryption-keys">
+    You supply your own raw key material with each API request. Google never stores your key; it is used transiently and discarded.
+  </Card>
+</CardGroup>
+
+## Using CMEK with Cloud KMS
+
+Cloud Key Management Service (Cloud KMS) lets you generate and manage cryptographic keys in a central, auditable location. Once you create a key in KMS, you reference it when creating storage resources so that Google uses your key — rather than a Google-managed key — for encryption and decryption operations.
+
+### Create a Key Ring and Key
+
+Start by creating a key ring (a logical grouping for keys in a region) and then the encryption key itself.
+
+```bash
+gcloud kms keyrings create my-keyring --location=us-central1
+
+gcloud kms keys create my-key \
+  --keyring=my-keyring \
+  --location=us-central1 \
+  --purpose=encryption
+```
+
+Grant the relevant Google service agent permission to use the key before attaching it to a resource.
+
+```bash
+gcloud kms keys add-iam-policy-binding my-key \
+  --keyring=my-keyring \
+  --location=us-central1 \
+  --member="serviceAccount:service-PROJECT_NUMBER@gs-project-accounts.iam.gserviceaccount.com" \
+  --role="roles/cloudkms.cryptoKeyEncrypterDecrypter"
+```
+
+<Note>
+  **Cloud HSM** is available as an option within Cloud KMS for workloads that require hardware-backed key storage. Keys protected by Cloud HSM are generated and used inside FIPS 140-2 Level 3 validated hardware security modules and can never be exported in plaintext. Select the `--protection-level=hsm` flag when creating a key to enable this option.
+</Note>
+
+## Configuring CMEK by Service
+
+<Tabs>
+  <Tab title="Cloud Storage">
+    Attach a CMEK key to a Cloud Storage bucket at creation time. All objects written to the bucket will be encrypted with your key unless an object-level override is specified.
+
+    ```bash
+    gsutil mb \
+      -l us-central1 \
+      -k projects/my-project/locations/us-central1/keyRings/my-keyring/cryptoKeys/my-key \
+      gs://my-encrypted-bucket
+    ```
+
+    You can also set or update the default KMS key on an existing bucket:
+
+    ```bash
+    gsutil kms encryption \
+      -k projects/my-project/locations/us-central1/keyRings/my-keyring/cryptoKeys/my-key \
+      gs://my-existing-bucket
+    ```
+
+    To verify the key assignment:
+
+    ```bash
+    gsutil kms encryption gs://my-encrypted-bucket
+    ```
+  </Tab>
+  <Tab title="Cloud SQL">
+    Attach a CMEK key when creating a Cloud SQL instance. The key must reside in the same region as the instance.
+
+    ```bash
+    gcloud sql instances create my-sql-instance \
+      --database-version=POSTGRES_15 \
+      --region=us-central1 \
+      --disk-encryption-key=projects/my-project/locations/us-central1/keyRings/my-keyring/cryptoKeys/my-key \
+      --tier=db-n1-standard-2
+    ```
+
+    Before running this command, ensure the Cloud SQL service account has the `cloudkms.cryptoKeyEncrypterDecrypter` role on the key:
+
+    ```bash
+    gcloud kms keys add-iam-policy-binding my-key \
+      --keyring=my-keyring \
+      --location=us-central1 \
+      --member="serviceAccount:service-PROJECT_NUMBER@gcp-sa-cloud-sql.iam.gserviceaccount.com" \
+      --role="roles/cloudkms.cryptoKeyEncrypterDecrypter"
+    ```
+
+    <Warning>
+      If you disable or destroy your CMEK key, Cloud SQL will lose the ability to decrypt your data. The instance will become inaccessible. Always maintain secure backups of your key material and carefully review key destruction requests before confirming them.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## Encryption in Transit
+
+All data in transit between your clients and Google Infrastructure — and between Google services internally — is encrypted using TLS 1.2 or higher. Google's network infrastructure enforces TLS everywhere, so there is no configuration required to enable baseline in-transit encryption.
+
+For services that you expose externally, such as load-balanced HTTPS endpoints, you can configure SSL policies to enforce a minimum TLS version and restrict which cipher suites are permitted.
+
+```bash
+gcloud compute ssl-policies create my-ssl-policy \
+  --profile=RESTRICTED \
+  --min-tls-version=TLS_1_2
+
+gcloud compute target-https-proxies update my-https-proxy \
+  --ssl-policy=my-ssl-policy
+```
+
+The `RESTRICTED` profile limits connections to a set of cipher suites that meet modern security standards and disables older, weaker algorithms.
+
+## Key Rotation
+
+Regularly rotating your encryption keys limits the blast radius of a compromised key. Cloud KMS supports automatic key rotation on a configurable schedule — when a rotation occurs, a new key version becomes the primary version used for all new encryption operations, while older versions remain available to decrypt data that was encrypted under them.
+
+<Tip>
+  Enable automatic key rotation on every CMEK key you create to meet common compliance requirements such as PCI DSS and NIST guidelines. A 90-day rotation period is a widely accepted baseline. Set the rotation period when creating the key with the `--rotation-period` flag, or update it later with `gcloud kms keys update`.
+
+  ```bash
+  gcloud kms keys create my-key \
+    --keyring=my-keyring \
+    --location=us-central1 \
+    --purpose=encryption \
+    --rotation-period=90d \
+    --next-rotation-time=2025-01-01T00:00:00Z
+  ```
+</Tip>

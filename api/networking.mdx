@@ -1,0 +1,216 @@
+---
+title: "Networking API Reference: VPCs, Subnets, and Firewalls"
+sidebarTitle: "Networking"
+description: "REST API reference for managing VPC networks, subnets, and firewall rules using the Compute Engine networking endpoints."
+---
+
+Network resources in Google Infrastructure — VPC networks, subnets, and firewall rules — are managed through the Compute Engine API. VPCs are global resources, meaning a single VPC spans all regions. Subnets are regional and define the IP address ranges available to VM instances in that region. Firewall rules are also global but apply selectively based on network tags, service accounts, or IP ranges.
+
+**Base URL:** `https://compute.googleapis.com/v1/projects/{project}/global/networks`
+
+<Note>
+  Firewall rules use a numeric priority to determine which rule applies when multiple rules match the same traffic. **Lower priority numbers take precedence.** The priority range is 0 (highest) to 65534 (lowest). The implicit default rule at priority 65535 denies all ingress and allows all egress traffic.
+</Note>
+
+---
+
+## List VPC Networks
+
+Retrieve all VPC networks in a project.
+
+```http
+GET https://compute.googleapis.com/v1/projects/my-project/global/networks
+Authorization: Bearer ACCESS_TOKEN
+```
+
+### Response
+
+```json
+{
+  "kind": "compute#networkList",
+  "items": [
+    {
+      "kind": "compute#network",
+      "id": "1122334455667788",
+      "name": "default",
+      "autoCreateSubnetworks": true,
+      "subnetworks": [
+        "https://www.googleapis.com/compute/v1/projects/my-project/regions/us-central1/subnetworks/default"
+      ],
+      "routingConfig": {
+        "routingMode": "REGIONAL"
+      }
+    }
+  ]
+}
+```
+
+---
+
+## Create a VPC Network
+
+Create a new VPC network. You can choose between auto mode (subnets created automatically in each region) or custom mode (you define every subnet manually).
+
+```http
+POST https://compute.googleapis.com/v1/projects/my-project/global/networks
+Authorization: Bearer ACCESS_TOKEN
+Content-Type: application/json
+```
+
+### Request Body Parameters
+
+<ParamField body="name" type="string" required>
+  Name for the VPC network. Must be 1–63 characters, start with a lowercase letter, and contain only lowercase letters, numbers, and hyphens.
+</ParamField>
+
+<ParamField body="autoCreateSubnetworks" type="boolean" required>
+  Set to `true` to create an auto-mode network that automatically provisions one subnet per region. Set to `false` to create a custom-mode network where you define all subnets manually. Custom mode is recommended for production environments where you need precise control over IP address space.
+</ParamField>
+
+### Example Request Body
+
+```json
+{
+  "name": "prod-network",
+  "autoCreateSubnetworks": false
+}
+```
+
+### Response
+
+```json
+{
+  "kind": "compute#operation",
+  "name": "operation-1717243200000-prod-network",
+  "operationType": "insert",
+  "status": "RUNNING",
+  "targetLink": "https://www.googleapis.com/compute/v1/projects/my-project/global/networks/prod-network"
+}
+```
+
+---
+
+## Create a Subnet
+
+Create a regional subnet within an existing custom-mode VPC network. Subnets define the IP address ranges available to VM instances in the specified region.
+
+```http
+POST https://compute.googleapis.com/v1/projects/my-project/regions/us-central1/subnetworks
+Authorization: Bearer ACCESS_TOKEN
+Content-Type: application/json
+```
+
+### Request Body Parameters
+
+<ParamField body="name" type="string" required>
+  Name for the subnet. Must follow the same naming conventions as networks: 1–63 characters, lowercase letters, numbers, and hyphens.
+</ParamField>
+
+<ParamField body="network" type="string" required>
+  Full or partial URL of the VPC network that this subnet belongs to. For example, `projects/my-project/global/networks/prod-network`.
+</ParamField>
+
+<ParamField body="ipCidrRange" type="string" required>
+  IP address range for the subnet in CIDR notation. For example, `10.10.0.0/24`. This range must not overlap with other subnets in the same VPC. Choose a range large enough for your expected instance count, allowing for growth.
+</ParamField>
+
+<ParamField body="region" type="string" required>
+  The region in which to create the subnet. For example, `us-central1`. VMs and other resources in this region can use IP addresses from this subnet.
+</ParamField>
+
+### Example Request Body
+
+```json
+{
+  "name": "prod-subnet-uscentral",
+  "network": "projects/my-project/global/networks/prod-network",
+  "ipCidrRange": "10.10.0.0/24",
+  "region": "us-central1"
+}
+```
+
+### Response
+
+```json
+{
+  "kind": "compute#operation",
+  "name": "operation-1717243201000-prod-subnet",
+  "operationType": "insert",
+  "status": "RUNNING",
+  "region": "https://www.googleapis.com/compute/v1/projects/my-project/regions/us-central1",
+  "targetLink": "https://www.googleapis.com/compute/v1/projects/my-project/regions/us-central1/subnetworks/prod-subnet-uscentral"
+}
+```
+
+---
+
+## Create a Firewall Rule
+
+Create a firewall rule to allow or deny traffic to VM instances in a VPC network. Firewall rules are stateful — if you allow ingress traffic on a port, return traffic is automatically permitted.
+
+```http
+POST https://compute.googleapis.com/v1/projects/my-project/global/firewalls
+Authorization: Bearer ACCESS_TOKEN
+Content-Type: application/json
+```
+
+### Request Body Parameters
+
+<ParamField body="name" type="string" required>
+  Unique name for the firewall rule within the project. Use a descriptive name that conveys the rule's intent, such as `allow-ssh-from-office` or `deny-external-db-access`.
+</ParamField>
+
+<ParamField body="network" type="string" required>
+  Full or partial URL of the VPC network this rule applies to. For example, `projects/my-project/global/networks/prod-network`.
+</ParamField>
+
+<ParamField body="allowed" type="array" required>
+  Array of protocol and port specifications that this rule permits. Each entry contains an `IPProtocol` field (`tcp`, `udp`, `icmp`, or a protocol number) and an optional `ports` array. Omit `ports` to allow all ports for that protocol.
+</ParamField>
+
+<ParamField body="sourceRanges" type="array">
+  List of source IP CIDR ranges from which traffic is matched. Use `["0.0.0.0/0"]` to match all sources. Specify this field for ingress rules; use `destinationRanges` for egress rules.
+</ParamField>
+
+### Example Request Body
+
+```json
+{
+  "name": "allow-ssh-from-office",
+  "network": "projects/my-project/global/networks/prod-network",
+  "direction": "INGRESS",
+  "priority": 1000,
+  "allowed": [
+    {
+      "IPProtocol": "tcp",
+      "ports": ["22"]
+    }
+  ],
+  "sourceRanges": ["203.0.113.0/24"],
+  "targetTags": ["ssh-allowed"]
+}
+```
+
+### Response
+
+```json
+{
+  "kind": "compute#operation",
+  "name": "operation-1717243202000-allow-ssh",
+  "operationType": "insert",
+  "status": "RUNNING",
+  "targetLink": "https://www.googleapis.com/compute/v1/projects/my-project/global/firewalls/allow-ssh-from-office"
+}
+```
+
+---
+
+## Firewall Rule Priority Reference
+
+| Priority Range | Recommended Use |
+|---|---|
+| `0 – 999` | Emergency overrides and break-glass rules |
+| `1000 – 9999` | Standard application firewall rules |
+| `10000 – 65534` | Broad default-allow or default-deny baselines |
+
+Apply `targetTags` or `targetServiceAccounts` to rules to limit them to specific VM instances rather than applying them to the entire network. This reduces the blast radius of overly permissive rules.

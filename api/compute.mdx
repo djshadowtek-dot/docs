@@ -1,0 +1,203 @@
+---
+title: "Compute API Reference: Instances and Disks"
+sidebarTitle: "Compute"
+description: "REST API reference for managing Compute Engine VM instances — list, create, start, stop, and delete instances programmatically."
+---
+
+The Compute API gives you full programmatic control over your virtual machine instances, persistent disks, and machine type configurations. Every operation you can perform in the Google Cloud Console — launching a new VM, resizing a disk, stopping an instance for maintenance — is available through this API. All endpoints are scoped to a project and zone, reflecting the zonal nature of Compute Engine resources.
+
+**Base URL:** `https://compute.googleapis.com/v1/projects/{project}/zones/{zone}/instances`
+
+<Note>
+  Mutating operations (create, start, stop, delete) return an `Operation` object immediately rather than waiting for the action to complete. Poll the returned operation's `status` field until it reads `DONE` before proceeding. See the [API Overview](/api/overview) for details on working with long-running operations.
+</Note>
+
+---
+
+## List Instances
+
+Retrieve all VM instances in a specific project and zone.
+
+```http
+GET https://compute.googleapis.com/v1/projects/my-project/zones/us-central1-a/instances
+Authorization: Bearer ACCESS_TOKEN
+```
+
+### Query Parameters
+
+<ParamField query="maxResults" type="integer">
+  Maximum number of instances to return per page. Defaults to `500`. Maximum allowed value is `500`.
+</ParamField>
+
+<ParamField query="pageToken" type="string">
+  Token from a previous response's `nextPageToken` field. Pass this to retrieve the next page of results.
+</ParamField>
+
+<ParamField query="filter" type="string">
+  Filter expression to narrow results. For example, `status=RUNNING` returns only running instances. Supports comparison operators and logical `AND`.
+</ParamField>
+
+### Response
+
+```json
+{
+  "kind": "compute#instanceList",
+  "id": "projects/my-project/zones/us-central1-a/instances",
+  "items": [
+    {
+      "id": "1234567890",
+      "name": "my-instance",
+      "machineType": "zones/us-central1-a/machineTypes/e2-standard-4",
+      "status": "RUNNING",
+      "networkInterfaces": [
+        {
+          "networkIP": "10.128.0.2",
+          "network": "https://www.googleapis.com/compute/v1/projects/my-project/global/networks/default"
+        }
+      ]
+    }
+  ],
+  "nextPageToken": "Cg8KBm15LXZt..."
+}
+```
+
+<ResponseField name="kind" type="string">
+  Always `compute#instanceList` for list responses.
+</ResponseField>
+
+<ResponseField name="items" type="array">
+  Array of instance objects. Each object contains the instance configuration and current runtime state.
+</ResponseField>
+
+<ResponseField name="nextPageToken" type="string">
+  Present when additional pages of results exist. Pass this value as `pageToken` in your next request.
+</ResponseField>
+
+---
+
+## Create an Instance
+
+Launch a new VM instance in the specified project and zone.
+
+```http
+POST https://compute.googleapis.com/v1/projects/my-project/zones/us-central1-a/instances
+Authorization: Bearer ACCESS_TOKEN
+Content-Type: application/json
+```
+
+### Request Body Parameters
+
+<ParamField body="name" type="string" required>
+  Name for the new instance. Must be 1–63 characters, start with a lowercase letter, and contain only lowercase letters, numbers, and hyphens.
+</ParamField>
+
+<ParamField body="machineType" type="string" required>
+  Fully qualified machine type URL or partial URL. For example, `zones/us-central1-a/machineTypes/e2-standard-4`. See [machine types](https://cloud.google.com/compute/docs/machine-resource) for available options.
+</ParamField>
+
+<ParamField body="disks" type="array" required>
+  Array of disk configurations to attach to the instance. At least one disk must have `"boot": true`. Each disk object supports `initializeParams` for creating a new disk from a source image, or `source` for attaching an existing persistent disk.
+</ParamField>
+
+<ParamField body="networkInterfaces" type="array" required>
+  Array of network interface configurations. Specify the VPC network and optional subnetwork. To assign a public IP, include an `accessConfigs` entry with `type: ONE_TO_ONE_NAT`.
+</ParamField>
+
+### Example Request Body
+
+```json
+{
+  "name": "my-instance",
+  "machineType": "zones/us-central1-a/machineTypes/e2-standard-4",
+  "disks": [
+    {
+      "boot": true,
+      "autoDelete": true,
+      "initializeParams": {
+        "sourceImage": "projects/debian-cloud/global/images/family/debian-11",
+        "diskSizeGb": "50"
+      }
+    }
+  ],
+  "networkInterfaces": [
+    {
+      "network": "global/networks/default",
+      "accessConfigs": [
+        {
+          "type": "ONE_TO_ONE_NAT",
+          "name": "External NAT"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Response
+
+A successful request returns a `202 Accepted` and an `Operation` object:
+
+```json
+{
+  "kind": "compute#operation",
+  "id": "9876543210",
+  "name": "operation-1234567890123",
+  "zone": "https://www.googleapis.com/compute/v1/projects/my-project/zones/us-central1-a",
+  "operationType": "insert",
+  "status": "RUNNING",
+  "targetLink": "https://www.googleapis.com/compute/v1/projects/my-project/zones/us-central1-a/instances/my-instance",
+  "progress": 0
+}
+```
+
+---
+
+## Delete an Instance
+
+Permanently delete a VM instance. This operation cannot be undone. Attached disks with `autoDelete: true` are also deleted.
+
+```http
+DELETE https://compute.googleapis.com/v1/projects/my-project/zones/us-central1-a/instances/my-instance
+Authorization: Bearer ACCESS_TOKEN
+```
+
+Returns an `Operation` object. Poll the operation until `status: DONE` to confirm deletion.
+
+---
+
+## Start a Stopped Instance
+
+Start a VM instance that is in the `TERMINATED` state.
+
+```http
+POST https://compute.googleapis.com/v1/projects/my-project/zones/us-central1-a/instances/my-instance/start
+Authorization: Bearer ACCESS_TOKEN
+```
+
+Returns an `Operation` object. The instance transitions to `STAGING` and then `RUNNING` when the operation completes.
+
+---
+
+## Stop a Running Instance
+
+Gracefully stop a running VM instance. The instance transitions to `TERMINATED` and stops incurring per-minute compute charges, though you continue to pay for attached persistent disks.
+
+```http
+POST https://compute.googleapis.com/v1/projects/my-project/zones/us-central1-a/instances/my-instance/stop
+Authorization: Bearer ACCESS_TOKEN
+```
+
+Returns an `Operation` object.
+
+---
+
+## Instance Status Values
+
+| Status | Description |
+|---|---|
+| `PROVISIONING` | Resources are being allocated for the instance |
+| `STAGING` | Resources have been allocated; the instance is being prepared to run |
+| `RUNNING` | The instance is running and accessible |
+| `STOPPING` | The instance is being stopped |
+| `TERMINATED` | The instance has stopped and is not running |
+| `SUSPENDED` | The instance has been suspended to disk |

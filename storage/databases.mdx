@@ -1,0 +1,233 @@
+---
+title: "Managed Database Services on Google Infrastructure"
+sidebarTitle: "Databases"
+description: "Choose from fully managed relational, globally distributed, NoSQL document, wide-column, and in-memory database services on Google Infrastructure."
+---
+
+Google Infrastructure offers a comprehensive suite of fully managed database services, each optimized for a distinct set of workloads. You handle your data and schema; Google Infrastructure handles provisioning, patching, replication, backups, and scaling. Select the service that best matches your consistency requirements, access patterns, and scale targets.
+
+## Database Services at a Glance
+
+<CardGroup cols={2}>
+  <Card title="Cloud SQL" icon="table" href="#cloud-sql">
+    Fully managed PostgreSQL, MySQL, and SQL Server. Familiar SQL, automatic backups, high availability, and read replicas — ideal for standard relational workloads.
+  </Card>
+  <Card title="Cloud Spanner" icon="globe" href="#cloud-spanner">
+    Globally distributed relational database with strong consistency and a 99.999% SLA. Handles millions of transactions per second across regions with zero planned downtime.
+  </Card>
+  <Card title="Firestore" icon="fire" href="#firestore">
+    Serverless, horizontally scaling NoSQL document database with real-time sync. Purpose-built for mobile, web, and IoT applications that need offline support.
+  </Card>
+  <Card title="Bigtable" icon="layer-group" href="#bigtable">
+    Massively scalable NoSQL wide-column store for time-series, IoT telemetry, financial data, and analytics at petabyte scale with single-digit millisecond latency.
+  </Card>
+  <Card title="Memorystore" icon="bolt" href="#memorystore">
+    Fully managed Redis and Memcached for in-memory caching and session storage. Sub-millisecond latency with automatic failover and scaling.
+  </Card>
+</CardGroup>
+
+## Choosing the Right Database
+
+<Tabs>
+  <Tab title="Cloud SQL">
+    **Best for:** Standard relational workloads requiring familiar SQL semantics, ACID transactions, and existing application compatibility.
+
+    Choose Cloud SQL when your team already uses PostgreSQL, MySQL, or SQL Server and you want to migrate without rewriting queries or changing your ORM. Cloud SQL supports:
+
+    - Up to 624 GB RAM and 96 vCPUs per instance
+    - Read replicas in the same or different regions
+    - Automatic storage increases up to 64 TB
+    - Point-in-time recovery (PITR) for PostgreSQL and MySQL
+    - High availability via synchronous replication to a standby instance
+  </Tab>
+  <Tab title="Cloud Spanner">
+    **Best for:** Applications that have outgrown a single relational database and require global distribution, horizontal scaling, and strong consistency — without sacrificing SQL.
+
+    Choose Spanner when you need:
+
+    - Multi-region deployments with zero downtime maintenance
+    - Serializable isolation and external consistency across all writes
+    - 99.999% availability SLA (less than 5 minutes of downtime per year)
+    - Automatic sharding — no manual partitioning or shard management
+    - Interleaved tables for hierarchical data locality
+
+    Spanner is commonly used for financial ledgers, inventory systems, gaming backends, and any workload that has historically required a globally synchronized state.
+  </Tab>
+  <Tab title="Firestore">
+    **Best for:** Mobile and web applications that need a flexible document model, real-time data synchronization across clients, and serverless scalability.
+
+    Choose Firestore when you need:
+
+    - Schema-free, JSON-like documents organized into collections
+    - Real-time listeners that push updates to connected clients instantly
+    - Offline-first support with automatic client-side caching and sync
+    - A serverless pricing model with no instances to manage
+    - Native client SDKs for iOS, Android, and Web
+
+    Firestore scales automatically from zero to millions of concurrent connections with no configuration changes.
+  </Tab>
+</Tabs>
+
+## Cloud SQL
+
+Cloud SQL is the recommended starting point for teams moving relational workloads to Google Infrastructure. It supports PostgreSQL 9.6–15, MySQL 5.7–8.0, and SQL Server 2017–2022.
+
+### Create a Cloud SQL Instance
+
+```bash
+gcloud sql instances create my-db \
+  --database-version=POSTGRES_15 \
+  --tier=db-standard-4 \
+  --region=us-central1
+```
+
+Enable high availability (synchronous standby in a secondary zone):
+
+```bash
+gcloud sql instances patch my-db \
+  --availability-type=REGIONAL
+```
+
+Create a database and user:
+
+```bash
+gcloud sql databases create my-database --instance=my-db
+
+gcloud sql users create my-user \
+  --instance=my-db \
+  --password=your-secure-password
+```
+
+<Note>
+  Cloud SQL automatically creates daily backups and retains them for 7 days by default (configurable up to 365 days). **Point-in-time recovery (PITR)** is available for PostgreSQL and MySQL — you can restore to any second within your binary log retention window, protecting against accidental data deletion or corruption.
+</Note>
+
+### Connecting via Cloud SQL Auth Proxy
+
+The **Cloud SQL Auth Proxy** establishes an encrypted, IAM-authenticated tunnel between your application and your Cloud SQL instance. It eliminates the need to allowlist IP addresses or manage SSL certificates manually.
+
+<Steps>
+  <Step title="Download the Cloud SQL Auth Proxy binary">
+    ```bash
+    curl -o cloud-sql-proxy \
+      https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.6.0/cloud-sql-proxy.linux.amd64
+    chmod +x cloud-sql-proxy
+    ```
+  </Step>
+  <Step title="Start the proxy">
+    Replace `PROJECT_ID`, `REGION`, and `INSTANCE_NAME` with your values. The proxy listens on `127.0.0.1:5432` by default.
+
+    ```bash
+    ./cloud-sql-proxy PROJECT_ID:REGION:INSTANCE_NAME
+    ```
+  </Step>
+  <Step title="Connect with your database client">
+    Your application connects to `127.0.0.1:5432` exactly as if it were a local PostgreSQL server.
+
+    ```bash
+    psql "host=127.0.0.1 port=5432 dbname=my-database user=my-user"
+    ```
+  </Step>
+</Steps>
+
+## Cloud Spanner
+
+Provision a Spanner instance with configurable processing units:
+
+```bash
+gcloud spanner instances create my-spanner \
+  --config=regional-us-central1 \
+  --description="Production Spanner instance" \
+  --processing-units=1000
+```
+
+Create a database and apply a schema:
+
+```bash
+gcloud spanner databases create my-spanner-db \
+  --instance=my-spanner \
+  --ddl="CREATE TABLE Users (
+    UserId STRING(36) NOT NULL,
+    Name STRING(256),
+    Email STRING(256),
+    CreatedAt TIMESTAMP
+  ) PRIMARY KEY (UserId)"
+```
+
+<Info>
+  Spanner processing units (PUs) are the unit of compute capacity. 1,000 PUs equals one Spanner node. You can scale in increments of 100 PUs below 1,000 PUs for cost-effective smaller deployments.
+</Info>
+
+## Firestore
+
+Firestore operates in two modes — **Native mode** (recommended for new projects) and **Datastore mode** (for Datastore compatibility). Native mode databases are created per project.
+
+```bash
+gcloud firestore databases create \
+  --location=us-central \
+  --type=firestore-native
+```
+
+Write and read documents using the Firebase Admin SDK (Node.js example):
+
+```javascript
+const { initializeApp } = require("firebase-admin/app");
+const { getFirestore } = require("firebase-admin/firestore");
+
+initializeApp();
+const db = getFirestore();
+
+// Write a document
+await db.collection("users").doc("alice").set({
+  name: "Alice",
+  email: "alice@example.com",
+  createdAt: new Date(),
+});
+
+// Read a document
+const doc = await db.collection("users").doc("alice").get();
+console.log(doc.data());
+```
+
+## Bigtable
+
+Bigtable is ideal for append-heavy, time-series, and analytical workloads requiring consistent single-digit millisecond latency at petabyte scale.
+
+```bash
+gcloud bigtable instances create my-bigtable \
+  --display-name="My Bigtable Instance" \
+  --cluster-config=id=my-cluster,zone=us-central1-a,nodes=3
+```
+
+## Memorystore
+
+Provision a fully managed Redis instance for caching:
+
+```bash
+gcloud redis instances create my-cache \
+  --size=5 \
+  --region=us-central1 \
+  --redis-version=redis_7_0 \
+  --tier=STANDARD_HA
+```
+
+<Tip>
+  Use **Memorystore for Redis Cluster** to scale beyond a single node — it supports sharding across multiple nodes with automatic rebalancing, enabling cache tiers that handle millions of operations per second.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Object Storage" icon="bucket" href="/storage/object-storage">
+    Store database exports and backups in Cloud Storage.
+  </Card>
+  <Card title="Block Storage" icon="hard-drive" href="/storage/block-storage">
+    Learn about attaching high-performance disks to self-managed database VMs.
+  </Card>
+  <Card title="VPC Networking" icon="network-wired" href="/networking/vpc">
+    Keep database traffic private with VPC-native connectivity.
+  </Card>
+  <Card title="IAM & Access Control" icon="lock" href="/security/iam">
+    Control who can access and administer your database instances.
+  </Card>
+</CardGroup>

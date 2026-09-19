@@ -1,0 +1,169 @@
+---
+title: "Cloud Storage: Object Storage on Google Infrastructure"
+sidebarTitle: "Object Storage"
+description: "Store and retrieve any amount of unstructured data at any time using Google Infrastructure's scalable, durable Cloud Storage service."
+---
+
+Cloud Storage is Google Infrastructure's fully managed object storage service, designed to hold any amount of unstructured data — from backups and logs to media files and ML datasets. Every object lives inside a bucket, is globally addressable via a unique URL, and is protected by multiple layers of redundancy and access control. Whether you need millisecond access or deep archival, a matching storage class keeps costs aligned with your access patterns.
+
+## Storage Classes
+
+Google Infrastructure offers four storage classes. Each class uses the same API and tools — you choose based on how frequently you access your data.
+
+<CardGroup cols={2}>
+  <Card title="Standard" icon="bolt" href="#storage-classes">
+    Best for frequently accessed data and short-lived objects. No minimum storage duration, no retrieval fees. Ideal for serving website assets, mobile apps, and real-time analytics.
+  </Card>
+  <Card title="Nearline" icon="clock" href="#storage-classes">
+    Cost-effective for data accessed roughly once per month. 30-day minimum storage duration. Suited for backups, long-tail content, and data-archiving workflows.
+  </Card>
+  <Card title="Coldline" icon="snowflake" href="#storage-classes">
+    Low-cost storage for data accessed at most once per quarter. 90-day minimum storage duration. Ideal for disaster recovery and infrequently read archives.
+  </Card>
+  <Card title="Archive" icon="box-archive" href="#storage-classes">
+    Lowest-cost tier for data accessed less than once per year. 365-day minimum storage duration. Best for long-term digital preservation and compliance archives.
+  </Card>
+</CardGroup>
+
+<Tip>
+  Use lifecycle policies to automatically transition objects between storage classes as they age. For example, move objects to Nearline after 30 days and to Coldline after 90 days — with zero manual intervention. See [Lifecycle Policies](#lifecycle-policies) below.
+</Tip>
+
+## Bucket Naming and Location
+
+Every bucket name must be **globally unique** across all Google Infrastructure customers. Names must be 3–63 characters long, contain only lowercase letters, numbers, and hyphens, and must not resemble an IP address.
+
+When you create a bucket, choose a location type that matches your redundancy and latency requirements:
+
+| Location Type | Description | Example |
+|---|---|---|
+| **Region** | Single geographic region; lowest latency for nearby users | `us-central1` |
+| **Dual-region** | Two specific regions with automatic geo-redundancy | `nam4` (Iowa + South Carolina) |
+| **Multi-region** | Broad geographic area; highest availability | `us`, `eu`, `asia` |
+
+## Access Control
+
+Cloud Storage supports two access control models. You must choose one per bucket:
+
+- **Uniform bucket-level access** — All objects in the bucket inherit the same IAM policies. This is the recommended model; it prevents accidental public exposure through per-object ACLs.
+- **Fine-grained ACLs** — Individual objects can carry their own Access Control Lists on top of bucket-level IAM. Use this only when per-object permissions are strictly required.
+
+Common IAM roles for Cloud Storage:
+
+| Role | Permissions |
+|---|---|
+| `roles/storage.objectViewer` | Read objects |
+| `roles/storage.objectCreator` | Create objects (no read or delete) |
+| `roles/storage.objectAdmin` | Full object control |
+| `roles/storage.admin` | Full bucket and object control |
+
+<Note>
+  Use **signed URLs** to grant temporary, time-limited public access to private objects without modifying bucket permissions. Signed URLs can be scoped to specific HTTP methods and expire after a duration you define — ideal for secure file downloads in web and mobile apps.
+</Note>
+
+## Create a Bucket and Upload Your First File
+
+The steps below use the `gsutil` command-line tool. Install it as part of the [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) if you haven't already.
+
+<Steps>
+  <Step title="Create a bucket">
+    Replace `my-unique-bucket-name` with your globally unique name. The `-l` flag sets the storage location.
+
+    ```bash
+    gsutil mb -l us-central1 gs://my-unique-bucket-name
+    ```
+  </Step>
+  <Step title="Upload a file">
+    Copy a local file into your new bucket. The trailing `/` places the object at the bucket root.
+
+    ```bash
+    gsutil cp local-file.txt gs://my-unique-bucket-name/
+    ```
+  </Step>
+  <Step title="List objects in the bucket">
+    Verify the upload succeeded by listing the bucket contents.
+
+    ```bash
+    gsutil ls gs://my-unique-bucket-name/
+    ```
+  </Step>
+  <Step title="Download a file">
+    Retrieve the object back to your current working directory.
+
+    ```bash
+    gsutil cp gs://my-unique-bucket-name/local-file.txt ./
+    ```
+  </Step>
+</Steps>
+
+## Object Operations
+
+Beyond basic upload and download, `gsutil` supports the full object lifecycle:
+
+<CodeGroup>
+```bash Copy an object
+# Copy between buckets
+gsutil cp gs://source-bucket/object.txt gs://dest-bucket/object.txt
+```
+
+```bash Delete an object
+gsutil rm gs://my-unique-bucket-name/local-file.txt
+```
+
+```bash Move / rename an object
+gsutil mv gs://my-unique-bucket-name/old-name.txt \
+          gs://my-unique-bucket-name/new-name.txt
+```
+
+```bash Bulk upload a directory
+gsutil -m cp -r ./my-local-dir gs://my-unique-bucket-name/
+```
+</CodeGroup>
+
+## Lifecycle Policies
+
+Lifecycle policies let you define rules that automatically change an object's storage class or delete it after a set number of days. Define your policy in a JSON file and apply it to a bucket:
+
+```json lifecycle.json
+{
+  "rule": [
+    {
+      "action": { "type": "SetStorageClass", "storageClass": "NEARLINE" },
+      "condition": { "age": 30 }
+    },
+    {
+      "action": { "type": "SetStorageClass", "storageClass": "COLDLINE" },
+      "condition": { "age": 90 }
+    },
+    {
+      "action": { "type": "Delete" },
+      "condition": { "age": 365 }
+    }
+  ]
+}
+```
+
+```bash
+gsutil lifecycle set lifecycle.json gs://my-unique-bucket-name
+```
+
+<Tip>
+  Lifecycle policies are evaluated daily. Objects are transitioned or deleted on the first evaluation after the condition is met, so actual timing may be up to 24 hours after the threshold age is reached.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Block Storage" icon="hard-drive" href="/storage/block-storage">
+    Attach persistent block storage volumes to your VM instances.
+  </Card>
+  <Card title="Managed Databases" icon="database" href="/storage/databases">
+    Explore fully managed relational and NoSQL database options.
+  </Card>
+  <Card title="IAM & Access Control" icon="lock" href="/security/iam">
+    Learn how to manage identities and permissions across your infrastructure.
+  </Card>
+  <Card title="VPC Networking" icon="network-wired" href="/networking/vpc">
+    Secure your storage with private networking and VPC Service Controls.
+  </Card>
+</CardGroup>

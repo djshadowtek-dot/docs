@@ -1,0 +1,168 @@
+---
+title: "Virtual Private Cloud (VPC) Networking on Google Infrastructure"
+sidebarTitle: "VPC"
+description: "Create isolated, private networks for your Google Infrastructure resources using Virtual Private Cloud with custom subnets, firewall rules, and peering."
+---
+
+A Virtual Private Cloud (VPC) network provides logically isolated, private networking for all of your Google Infrastructure resources — compute instances, managed services, databases, and more. Unlike traditional networks, Google Infrastructure VPC networks are global by default: a single VPC can span all regions, and you carve out subnets in the specific regions where your workloads run. This architecture simplifies multi-region deployments while keeping your traffic on Google's private backbone.
+
+## Auto-Mode vs. Custom-Mode VPCs
+
+<Note>
+  Google Infrastructure supports two VPC modes. **Auto-mode** networks automatically create one subnet per region, each with a predefined IP range from `10.128.0.0/9`. This is convenient for getting started but offers less control over IP allocation. **Custom-mode** networks create no subnets automatically — you define every subnet's region and IP range explicitly. Custom-mode is strongly recommended for production environments where IP planning, VPC peering, and hybrid connectivity are important.
+</Note>
+
+## Create a VPC and Subnets
+
+<Steps>
+  <Step title="Create a custom-mode VPC network">
+    Custom-mode gives you full control over subnet regions and IP ranges.
+
+    ```bash
+    gcloud compute networks create my-vpc --subnet-mode=custom
+    ```
+  </Step>
+  <Step title="Create a subnet">
+    Subnets are regional. Choose a CIDR range that does not overlap with your other networks, especially if you plan to use VPC peering or Cloud VPN.
+
+    ```bash
+    gcloud compute networks subnets create my-subnet \
+      --network=my-vpc \
+      --region=us-central1 \
+      --range=10.0.0.0/24
+    ```
+  </Step>
+  <Step title="Verify the network and subnet">
+    ```bash
+    gcloud compute networks describe my-vpc
+    gcloud compute networks subnets describe my-subnet --region=us-central1
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+  For organizations managing multiple projects, use **Shared VPC** to centralize network administration in a single host project. Spoke projects attach to the shared VPC and launch resources into centrally managed subnets — giving your network team full visibility and control without fragmenting IP space or duplicating firewall policies across projects.
+</Tip>
+
+## Firewall Rules
+
+Firewall rules control ingress (inbound) and egress (outbound) traffic to and from your VM instances. Rules are stateful — if you allow inbound traffic on a port, return traffic is automatically permitted. Rules are evaluated by priority (lower number = higher priority, range 0–65535).
+
+### Create Common Firewall Rules
+
+```bash
+# Allow HTTP traffic from anywhere to instances tagged "http-server"
+gcloud compute firewall-rules create allow-http \
+  --network=my-vpc \
+  --allow=tcp:80 \
+  --source-ranges=0.0.0.0/0 \
+  --target-tags=http-server
+
+# Allow HTTPS traffic
+gcloud compute firewall-rules create allow-https \
+  --network=my-vpc \
+  --allow=tcp:443 \
+  --source-ranges=0.0.0.0/0 \
+  --target-tags=http-server
+
+# Allow SSH from a specific IP range (your corporate network)
+gcloud compute firewall-rules create allow-ssh-corp \
+  --network=my-vpc \
+  --allow=tcp:22 \
+  --source-ranges=203.0.113.0/24 \
+  --target-tags=bastion
+
+# Allow internal traffic between all resources in the VPC
+gcloud compute firewall-rules create allow-internal \
+  --network=my-vpc \
+  --allow=tcp,udp,icmp \
+  --source-ranges=10.0.0.0/8
+```
+
+### Firewall Rule Parameters
+
+<Accordion title="Key firewall rule parameters">
+  <ParamField path="--network" type="string" required>
+    The VPC network this rule applies to.
+  </ParamField>
+  <ParamField path="--allow" type="string" required>
+    Protocol and optional port or port range. Examples: `tcp:80`, `tcp:8080-8090`, `udp:53`, `icmp`, `all`.
+  </ParamField>
+  <ParamField path="--direction" type="string">
+    `INGRESS` (default) or `EGRESS`. Ingress rules filter traffic coming into VM instances; egress rules filter traffic leaving them.
+  </ParamField>
+  <ParamField path="--source-ranges" type="string">
+    For ingress rules: CIDR ranges that traffic may originate from. Use `0.0.0.0/0` for any IPv4 source.
+  </ParamField>
+  <ParamField path="--target-tags" type="string">
+    Network tags assigned to VM instances that this rule applies to. If omitted, the rule applies to all instances in the network.
+  </ParamField>
+  <ParamField path="--priority" type="integer">
+    Rule priority between 0 and 65535. Lower numbers take precedence. Default is 1000.
+  </ParamField>
+</Accordion>
+
+## VPC Peering
+
+VPC peering connects two VPC networks — even across different Google Infrastructure projects or organizations — allowing resources in each network to communicate using internal IP addresses. Traffic stays on Google's private network and does not traverse the public internet.
+
+```bash
+# Peer my-vpc with peer-vpc (both must create peering connections)
+gcloud compute networks peerings create my-vpc-to-peer \
+  --network=my-vpc \
+  --peer-network=peer-vpc \
+  --auto-create-routes
+
+# The peer-vpc owner must also create the reciprocal peering
+gcloud compute networks peerings create peer-vpc-to-mine \
+  --network=peer-vpc \
+  --peer-network=my-vpc \
+  --auto-create-routes
+```
+
+<Warning>
+  VPC peering does **not** support transitive routing. If VPC A peers with VPC B, and VPC B peers with VPC C, resources in VPC A cannot reach VPC C through VPC B. Each pair of networks requires a direct peering connection.
+</Warning>
+
+## Private Google Access
+
+By default, VM instances without external IP addresses cannot reach Google APIs and services (such as Cloud Storage, Cloud SQL, or BigQuery). Enable **Private Google Access** on a subnet to allow instances in that subnet to reach Google APIs using their internal IP addresses only.
+
+```bash
+gcloud compute networks subnets update my-subnet \
+  --region=us-central1 \
+  --enable-private-ip-google-access
+```
+
+<Info>
+  Private Google Access is a subnet-level setting. Enable it on every subnet whose instances need to call Google APIs without a public IP. This is a best practice for production workloads that should not have direct internet exposure.
+</Info>
+
+## Routes
+
+Google Infrastructure automatically creates a default route (`0.0.0.0/0`) pointing to the internet gateway and subnet-level routes for each subnet you create. Add custom static routes to direct traffic to specific destinations:
+
+```bash
+gcloud compute routes create route-to-on-prem \
+  --network=my-vpc \
+  --destination-range=192.168.1.0/24 \
+  --next-hop-vpn-tunnel=tunnel-1 \
+  --next-hop-vpn-tunnel-region=us-central1
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Load Balancing" icon="scale-balanced" href="/networking/load-balancing">
+    Distribute traffic across your VPC resources with global and regional load balancers.
+  </Card>
+  <Card title="Cloud VPN" icon="shield-halved" href="/networking/vpn">
+    Connect your on-premises network to your VPC over an encrypted tunnel.
+  </Card>
+  <Card title="Cloud DNS" icon="globe" href="/networking/dns">
+    Configure private DNS zones that resolve names for resources in your VPC.
+  </Card>
+  <Card title="Object Storage" icon="bucket" href="/storage/object-storage">
+    Use Private Google Access to reach Cloud Storage from VPC-private instances.
+  </Card>
+</CardGroup>

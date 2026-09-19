@@ -1,0 +1,142 @@
+---
+title: "Identity and Access Management (IAM) Guide"
+sidebarTitle: "IAM"
+description: "Configure fine-grained access control by granting roles to users, groups, and service accounts across your Google Infrastructure resource hierarchy."
+---
+
+Identity and Access Management (IAM) gives you precise control over who can do what on your Google Infrastructure resources. Rather than granting blanket permissions, IAM lets you assign specific roles to users, groups, and service accounts at any level of the resource hierarchy — from the organization level all the way down to an individual bucket or VM instance. This model ensures that every principal operates with only the permissions they need to do their job.
+
+## How IAM Works
+
+IAM policies follow a simple structure: a **principal** (who) is granted a **role** (what they can do) on a **resource** (where). Roles bundle sets of permissions together so you don't have to manage individual permissions for every action. Policies are inherited down the resource hierarchy, so a role granted at the project level automatically applies to all resources within that project.
+
+<CardGroup cols={2}>
+  <Card title="IAM Console" icon="shield-halved" href="https://console.cloud.google.com/iam-admin/iam">
+    View and manage IAM policies for your project directly in the Cloud Console.
+  </Card>
+  <Card title="Roles Reference" icon="list-check" href="https://cloud.google.com/iam/docs/understanding-roles">
+    Browse the full catalog of predefined roles and their associated permissions.
+  </Card>
+  <Card title="Service Accounts" icon="robot" href="https://console.cloud.google.com/iam-admin/serviceaccounts">
+    Create and manage service accounts for application-level authentication.
+  </Card>
+  <Card title="Policy Troubleshooter" icon="magnifying-glass" href="https://console.cloud.google.com/iam-admin/troubleshooter">
+    Diagnose why a principal can or cannot access a specific resource.
+  </Card>
+</CardGroup>
+
+## Viewing Your Current IAM Policy
+
+Before making changes, inspect the existing IAM policy for your project to understand which principals already have access and what roles they hold.
+
+```bash
+gcloud projects get-iam-policy my-project
+```
+
+The output lists every binding in your policy — each binding maps a role to one or more members. Review this output carefully before adding or removing any bindings to avoid unintentional access gaps or privilege escalations.
+
+## Granting a Role
+
+Use `add-iam-policy-binding` to grant a role to a principal on a project. The command performs a read-modify-write operation on the policy, so it safely appends the new binding without overwriting existing ones.
+
+```bash
+gcloud projects add-iam-policy-binding my-project \
+  --member="user:alice@example.com" \
+  --role="roles/storage.objectViewer"
+```
+
+You can grant roles to users (`user:`), groups (`group:`), service accounts (`serviceAccount:`), and domains (`domain:`). Always prefer granting roles to groups rather than individuals so that access is managed centrally through your identity provider.
+
+<Tip>
+  Follow the principle of least privilege: start with the most restrictive role that allows the principal to complete their task, and expand permissions only if explicitly required.
+</Tip>
+
+## Revoking a Role
+
+To remove access, use `remove-iam-policy-binding` with the same member and role identifiers you used when granting.
+
+```bash
+gcloud projects remove-iam-policy-binding my-project \
+  --member="user:alice@example.com" \
+  --role="roles/storage.objectViewer"
+```
+
+Revoking a role takes effect immediately. Audit your policies regularly and remove bindings for principals who no longer need access — for example, when an employee changes teams or leaves the organization.
+
+## Service Accounts
+
+Service accounts provide an identity for applications and workloads running on Google Infrastructure. Instead of embedding user credentials in your code, you grant a service account the permissions it needs and let your application authenticate as that service account.
+
+### Creating a Service Account
+
+```bash
+gcloud iam service-accounts create my-app-sa \
+  --display-name="My App Service Account"
+```
+
+### Granting a Role to a Service Account
+
+```bash
+gcloud projects add-iam-policy-binding my-project \
+  --member="serviceAccount:my-app-sa@my-project.iam.gserviceaccount.com" \
+  --role="roles/storage.admin"
+```
+
+Give each workload its own dedicated service account rather than sharing one account across multiple applications. This allows you to revoke access for a single workload without affecting others, and makes audit logs much easier to interpret.
+
+<Warning>
+  Avoid downloading service account keys unless absolutely necessary. Long-lived key files that are stored on disk, checked into source control, or embedded in container images are a significant security risk. If a key is compromised, an attacker gains persistent access to everything that service account can do. Use Workload Identity Federation or attach service accounts directly to Compute Engine instances and Cloud Run services wherever possible.
+</Warning>
+
+<Tip>
+  **Workload Identity Federation** lets workloads running outside Google Cloud — such as GitHub Actions pipelines, AWS Lambda functions, or on-premises applications — authenticate to Google APIs using short-lived tokens instead of service account keys. Configure a Workload Identity Pool to map external identities to a service account, and you eliminate the need to manage, rotate, or secure long-lived key files entirely.
+</Tip>
+
+## Custom Roles
+
+Predefined roles bundle permissions that are useful for common job functions, but they sometimes grant more access than your use case requires. Custom roles let you define exactly the set of permissions a principal needs — nothing more.
+
+<Steps>
+  <Step title="List available permissions">
+    Browse permissions for the services your role will cover using the IAM permissions reference or the Cloud Console role editor.
+  </Step>
+  <Step title="Create a role definition file">
+    Define your custom role in a YAML file specifying the title, description, stage, and the exact list of `includedPermissions`.
+
+    ```yaml
+    title: "Storage Read-Only (Custom)"
+    description: "Read objects and metadata from Cloud Storage buckets."
+    stage: "GA"
+    includedPermissions:
+      - storage.objects.get
+      - storage.objects.list
+      - storage.buckets.get
+    ```
+  </Step>
+  <Step title="Create the custom role">
+    ```bash
+    gcloud iam roles create storageReadOnly \
+      --project=my-project \
+      --file=role-definition.yaml
+    ```
+  </Step>
+  <Step title="Grant the custom role to a principal">
+    ```bash
+    gcloud projects add-iam-policy-binding my-project \
+      --member="user:bob@example.com" \
+      --role="projects/my-project/roles/storageReadOnly"
+    ```
+  </Step>
+</Steps>
+
+## Common Predefined Roles
+
+<Accordion title="Predefined roles reference">
+  | Role | Title | Description |
+  |---|---|---|
+  | `roles/compute.admin` | **Compute Admin** | Full control over all Compute Engine resources, including instances, disks, networks, and load balancers. Use for infrastructure engineers who manage compute resources. |
+  | `roles/storage.admin` | **Storage Admin** | Full control over Cloud Storage buckets and objects, including creating and deleting buckets. Use for data platform engineers responsible for managing storage infrastructure. |
+  | `roles/viewer` | **Viewer** | Read-only access to all resources within the project. Grants no ability to create, modify, or delete resources. Suitable for auditors and read-only stakeholders. |
+  | `roles/editor` | **Editor** | Read and write access to most resources, but cannot manage IAM policies or billing. Avoid assigning this role broadly — prefer narrower predefined or custom roles. |
+  | `roles/owner` | **Owner** | Complete control over the project, including full IAM administration and billing management. Restrict this role to a small number of trusted administrators. |
+</Accordion>

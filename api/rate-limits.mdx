@@ -1,0 +1,112 @@
+---
+title: "Google Infrastructure API Rate Limits and Quotas"
+sidebarTitle: "Rate Limits"
+description: "Understand per-project API quotas, check your current usage, request increases, and handle 429 rate limit errors with exponential backoff."
+---
+
+Google Infrastructure APIs enforce per-project quotas to ensure fair usage across all customers and to protect the stability of the platform. When your application exceeds a quota, the API returns a `429 Too Many Requests` response. Building retry logic with exponential backoff into your application ensures that transient quota exhaustion does not cause failures.
+
+## Default Rate Limits
+
+The following limits apply to all projects by default. These are the starting quotas — you can request increases for any of them.
+
+| API | Default Limit |
+|---|---|
+| Compute API | 2,000 requests / minute per project |
+| Storage API | 1,000 requests / second per bucket |
+| IAM API | 600 requests / minute per project |
+
+<Note>
+  Google Infrastructure APIs distinguish between **burst** and **sustained** rate limits. Burst limits allow short spikes above the sustained rate for a few seconds — useful for handling sudden load. Sustained limits are enforced over a rolling window. Design your retry logic to handle both: a burst of retries after a `429` can itself trigger the burst limit and make the situation worse. Space retries out using exponential backoff with jitter.
+</Note>
+
+## Checking Your Quota Usage
+
+You can view real-time quota consumption and historical usage in the Google Cloud Console:
+
+<Steps>
+  <Step title="Open APIs & Services">
+    Navigate to **APIs & Services → Quotas** in the [Google Cloud Console](https://console.cloud.google.com/apis/dashboard). Select the project you want to inspect from the project picker at the top of the page.
+  </Step>
+  <Step title="Filter by API">
+    Use the search bar to filter by service name — for example, type `compute` to see all Compute API quotas, or `storage` for Storage API quotas.
+  </Step>
+  <Step title="Review usage">
+    Each quota row shows your current limit, current usage, and a usage percentage. Click any row to see usage graphs broken down by time and by region.
+  </Step>
+</Steps>
+
+## Requesting a Quota Increase
+
+If your workload consistently approaches the default limits, request an increase through the Console:
+
+<Steps>
+  <Step title="Locate the quota to increase">
+    Follow the steps above to find the specific quota you need raised.
+  </Step>
+  <Step title="Click Edit Quotas">
+    Select the checkbox next to the quota and click **Edit Quotas** in the toolbar. A request form opens.
+  </Step>
+  <Step title="Submit your request">
+    Enter the new limit you need and provide a brief justification — for example, explain your expected traffic patterns or the nature of the workload. Google reviews quota increase requests within 1–2 business days.
+  </Step>
+</Steps>
+
+## Handling 429 Responses
+
+Implement exponential backoff with jitter to handle rate limit errors gracefully. Each retry waits longer than the previous one, and adding random jitter prevents multiple clients from retrying in lockstep and hammering the API simultaneously.
+
+```python
+import time
+import random
+
+def api_call_with_retry(func, max_retries=5):
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except Exception as e:
+            if '429' in str(e):
+                wait = (2 ** attempt) + random.uniform(0, 1)
+                time.sleep(wait)
+            else:
+                raise
+    raise Exception("Max retries exceeded")
+```
+
+Call your API function through the wrapper:
+
+```python
+from google.cloud import compute_v1
+
+def list_instances():
+    client = compute_v1.InstancesClient()
+    return list(client.list(project="my-project", zone="us-central1-a"))
+
+instances = api_call_with_retry(list_instances)
+```
+
+The retry intervals for this implementation are approximately: 1s, 2s, 4s, 8s, 16s — plus up to 1 second of random jitter on each attempt.
+
+<Accordion title="Common rate limit errors and how to resolve them">
+  **`rateLimitExceeded` — You have sent too many requests in a short window.**
+
+  Reduce request frequency and add delays between bulk operations. If you are iterating over many resources, introduce a small `time.sleep()` between iterations and batch operations where the API supports it.
+
+  ---
+
+  **`userRateLimitExceeded` — The per-user (per-credential) limit is exceeded.**
+
+  Distribute requests across multiple service accounts or projects if your workload genuinely requires more throughput than a single quota allows. Alternatively, request a quota increase.
+
+  ---
+
+  **`quotaExceeded` — You have hit a longer-term quota, not just a per-minute rate limit.**
+
+  Some quotas are measured daily or monthly. Check the **Quotas** page in the Console to identify which quota is exhausted and request an increase. Temporary workarounds include reducing non-essential API calls or deferring batch jobs to off-peak hours.
+
+  ---
+
+  **`403` with reason `RATE_LIMIT_EXCEEDED` on Storage API.**
+
+  Storage bucket-level rate limits apply per bucket, not per project. If you are hitting bucket rate limits, shard your data across multiple buckets or implement client-side request queuing with a token bucket algorithm.
+</Accordion>

@@ -1,0 +1,66 @@
+---
+title: "Welcome to Google Infrastructure Documentation"
+sidebarTitle: "Introduction"
+description: "Google Infrastructure delivers scalable compute, networking, storage, and operations tooling to help modern organizations build and run reliable workloads globally."
+---
+
+Google Infrastructure gives your organization a unified platform to provision and manage compute instances, virtual networks, object storage, and observability tooling — all backed by Google's global network. Whether you are migrating existing workloads, building cloud-native applications, or scaling a distributed system, this documentation walks you through every capability from first login to production deployment.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Spin up your first compute instance in under 10 minutes with step-by-step guidance.
+  </Card>
+  <Card title="Architecture Overview" icon="sitemap" href="/architecture-overview">
+    Understand how regions, zones, projects, and core services fit together.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore the full REST and gRPC API surface with request and response schemas.
+  </Card>
+  <Card title="CLI & SDKs" icon="terminal" href="/cli/installation">
+    Install the `gcloud` CLI and language-specific client libraries for your stack.
+  </Card>
+</CardGroup>
+
+## Get Started in Four Steps
+
+Follow this onboarding flow to go from a new account to a fully monitored, scalable deployment.
+
+<Steps>
+  <Step title="Create Your Account">
+    Sign up at [console.cloud.google.com](https://console.cloud.google.com) and create your first project. A project is the top-level container for all resources you provision, and it is where billing, quotas, and access controls are applied.
+  </Step>
+  <Step title="Set Up Credentials">
+    Install the `gcloud` CLI and run `gcloud auth login` to authenticate your local environment. Then run `gcloud config set project PROJECT_ID` so every subsequent command targets the correct project.
+  </Step>
+  <Step title="Provision a Resource">
+    Create your first compute instance, storage bucket, or virtual network using the console, CLI, or API. Each resource type has a dedicated guide that covers configuration options, pricing tiers, and best practices.
+  </Step>
+  <Step title="Monitor and Scale">
+    Enable Cloud Monitoring and Cloud Logging to collect metrics, logs, and traces from your resources. Set up autoscaling policies and alerting rules so your infrastructure responds automatically to changes in demand.
+  </Step>
+</Steps>
+
+## Explore the Platform
+
+Google Infrastructure is organized into six product areas. Select a tile to jump directly into the relevant documentation.
+
+<CardGroup cols={3}>
+  <Card title="Compute" icon="server" href="/compute/instances">
+    Provision virtual machine instances, managed instance groups, and serverless runtimes tuned for your workload.
+  </Card>
+  <Card title="Storage" icon="database" href="/storage/object-storage">
+    Store and retrieve any amount of data with globally distributed object, block, and file storage options.
+  </Card>
+  <Card title="Networking" icon="network-wired" href="/networking/vpc">
+    Design private virtual networks, configure load balancers, and control traffic flow with firewall rules.
+  </Card>
+  <Card title="Security" icon="shield-halved" href="/security/iam">
+    Manage identities, roles, and policies with IAM to enforce least-privilege access across every resource.
+  </Card>
+  <Card title="Operations" icon="chart-line" href="/operations/monitoring">
+    Collect metrics, logs, and traces through an integrated observability suite built for large-scale environments.
+  </Card>
+  <Card title="Integrations" icon="plug" href="/concepts/resources">
+    Connect Google Infrastructure to third-party tools, CI/CD pipelines, and partner services through open APIs.
+  </Card>
+</CardGroup>

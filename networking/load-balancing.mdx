@@ -1,0 +1,198 @@
+---
+title: "Load Balancing Options on Google Infrastructure"
+sidebarTitle: "Load Balancing"
+description: "Distribute application traffic across compute resources using Google Infrastructure's global and regional load balancers for HTTP, TCP, UDP, and internal workloads."
+---
+
+Google Infrastructure's load balancers distribute incoming traffic across multiple backend instances, improving availability, fault tolerance, and scalability. Choose from Application (Layer 7), Network (Layer 4), or Internal load balancers depending on where your traffic originates, how much routing intelligence you need, and whether your workload is internet-facing or entirely private.
+
+## Load Balancer Types
+
+<CardGroup cols={2}>
+  <Card title="Global Application (HTTP/S)" icon="globe" href="#global-application-https-load-balancer">
+    Layer 7 load balancer with a single global anycast IP. Routes traffic based on URL path and hostname, supports WebSockets, HTTP/2, and gRPC. Integrated with Cloud CDN and Cloud Armor.
+  </Card>
+  <Card title="Regional Application (HTTP/S)" icon="map-pin" href="#regional-load-balancers">
+    Layer 7 load balancer scoped to a single region. Ideal when data residency requirements restrict traffic to a specific geography.
+  </Card>
+  <Card title="Network (TCP/UDP)" icon="network-wired" href="#network-tcp-udp-load-balancer">
+    Regional Layer 4 load balancer for high-throughput, low-latency TCP and UDP traffic. Preserves client source IP and supports connection draining.
+  </Card>
+  <Card title="Internal Load Balancer" icon="lock" href="#internal-load-balancer">
+    Private load balancing within a VPC. No external IP required — distribute traffic across internal backend services for microservice architectures.
+  </Card>
+</CardGroup>
+
+## Global vs. Regional: At a Glance
+
+<CardGroup cols={2}>
+  <Card title="Global Load Balancer" icon="earth-americas" href="#global-application-https-load-balancer">
+    **Single anycast IP.** Traffic is routed to the nearest healthy backend worldwide. Handles traffic spikes automatically with no capacity pre-provisioning. Best for latency-sensitive, globally distributed applications.
+  </Card>
+  <Card title="Regional Load Balancer" icon="building" href="#regional-load-balancers">
+    **Regional scope.** Traffic enters and stays in the configured region. Provides predictable data residency, lower per-GB cost within a region, and is the right choice when compliance prevents cross-region traffic routing.
+  </Card>
+</CardGroup>
+
+## Global Application (HTTP/S) Load Balancer
+
+The Global External Application Load Balancer operates at Layer 7, understands HTTP and HTTPS, and can route requests based on URL path (`/api/*` → backend A, `/static/*` → backend B) or hostname (`api.example.com` → service A, `www.example.com` → service B).
+
+### Set Up an HTTP(S) Load Balancer
+
+<Steps>
+  <Step title="Create an instance group as the backend">
+    Your backend instances must belong to a managed or unmanaged instance group.
+
+    ```bash
+    gcloud compute instance-groups managed create my-instance-group \
+      --base-instance-name=web \
+      --size=3 \
+      --template=my-instance-template \
+      --zone=us-central1-a
+    ```
+  </Step>
+  <Step title="Create a backend service">
+    The backend service defines how traffic is distributed and how health is evaluated.
+
+    ```bash
+    gcloud compute backend-services create my-backend-service \
+      --protocol=HTTP \
+      --port-name=http \
+      --health-checks=my-health-check \
+      --global
+
+    gcloud compute backend-services add-backend my-backend-service \
+      --instance-group=my-instance-group \
+      --instance-group-zone=us-central1-a \
+      --global
+    ```
+  </Step>
+  <Step title="Create a URL map">
+    The URL map routes incoming requests to the appropriate backend service.
+
+    ```bash
+    gcloud compute url-maps create my-url-map \
+      --default-service=my-backend-service
+    ```
+  </Step>
+  <Step title="Create the target proxy and forwarding rule">
+    For HTTPS, attach an SSL certificate to the target proxy.
+
+    ```bash
+    gcloud compute target-http-proxies create my-http-proxy \
+      --url-map=my-url-map
+
+    gcloud compute forwarding-rules create my-forwarding-rule \
+      --global \
+      --target-http-proxy=my-http-proxy \
+      --ports=80
+    ```
+  </Step>
+</Steps>
+
+## SSL Certificates
+
+Attach a Google-managed SSL certificate to your load balancer for automatic provisioning, renewal, and rotation — no manual certificate management required.
+
+```bash
+gcloud compute ssl-certificates create my-cert \
+  --domains=example.com \
+  --global
+```
+
+Attach the certificate to a target HTTPS proxy:
+
+```bash
+gcloud compute target-https-proxies create my-https-proxy \
+  --url-map=my-url-map \
+  --ssl-certificates=my-cert
+
+gcloud compute forwarding-rules create my-https-rule \
+  --global \
+  --target-https-proxy=my-https-proxy \
+  --ports=443
+```
+
+<Note>
+  Google-managed certificates are provisioned automatically after you point your domain's DNS to the load balancer's IP address. Provisioning typically completes within minutes but can take up to 60 minutes. Certificates renew automatically before expiry — no action is required on your part.
+</Note>
+
+## Health Checks
+
+Health checks probe your backend instances at regular intervals to determine which instances are healthy and eligible to receive traffic. Unhealthy instances are automatically removed from rotation until they recover.
+
+```bash
+gcloud compute health-checks create http my-health-check \
+  --port=80 \
+  --request-path=/healthz \
+  --check-interval=10s \
+  --timeout=5s \
+  --healthy-threshold=2 \
+  --unhealthy-threshold=3
+```
+
+<Accordion title="Health check parameters explained">
+  <ParamField path="--check-interval" type="string">
+    How frequently to send a probe to each backend instance. Default: `10s`. Lower values detect failures faster but increase probe traffic.
+  </ParamField>
+  <ParamField path="--timeout" type="string">
+    How long to wait for a response before marking the probe as failed. Must be less than or equal to `--check-interval`. Default: `5s`.
+  </ParamField>
+  <ParamField path="--healthy-threshold" type="integer">
+    Number of consecutive successful probes required before marking an instance as healthy. Default: `2`.
+  </ParamField>
+  <ParamField path="--unhealthy-threshold" type="integer">
+    Number of consecutive failed probes required before marking an instance as unhealthy and removing it from rotation. Default: `3`.
+  </ParamField>
+  <ParamField path="--request-path" type="string">
+    The URL path to probe for HTTP/HTTPS health checks. Your application should return HTTP 200 from this path when healthy. Default: `/`.
+  </ParamField>
+</Accordion>
+
+## Network (TCP/UDP) Load Balancer
+
+The Network Load Balancer operates at Layer 4 and distributes TCP and UDP traffic within a single region. It preserves the original client IP address and supports session affinity.
+
+```bash
+gcloud compute forwarding-rules create my-network-lb \
+  --region=us-central1 \
+  --ports=443 \
+  --address=my-static-ip \
+  --target-pool=my-target-pool
+```
+
+## Internal Load Balancer
+
+The Internal Load Balancer distributes traffic exclusively within your VPC — no traffic leaves your private network. It is the standard choice for service-to-service communication in microservice architectures.
+
+```bash
+gcloud compute forwarding-rules create my-internal-lb \
+  --region=us-central1 \
+  --load-balancing-scheme=INTERNAL \
+  --backend-service=my-internal-backend \
+  --ports=8080 \
+  --subnet=my-subnet \
+  --network=my-vpc
+```
+
+<Tip>
+  Attach **Cloud Armor** to your Global Application Load Balancer to add DDoS protection and Web Application Firewall (WAF) rules. Cloud Armor supports pre-configured rule sets for OWASP Top 10 threats as well as custom rate limiting policies — all enforced at Google's network edge before traffic reaches your backends.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="VPC Networking" icon="network-wired" href="/networking/vpc">
+    Configure the VPC and subnets that your load balancer backends reside in.
+  </Card>
+  <Card title="Cloud DNS" icon="globe" href="/networking/dns">
+    Point your domain to your load balancer's IP with Cloud DNS.
+  </Card>
+  <Card title="Cloud VPN" icon="shield-halved" href="/networking/vpn">
+    Securely route on-premises traffic into your VPC and load-balanced backends.
+  </Card>
+  <Card title="Compute Instances" icon="server" href="/compute/instances">
+    Create the VM instances and instance groups that serve as load balancer backends.
+  </Card>
+</CardGroup>

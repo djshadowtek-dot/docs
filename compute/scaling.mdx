@@ -1,0 +1,149 @@
+---
+title: "Auto-Scaling and Managed Instance Groups on Google Infrastructure"
+sidebarTitle: "Auto-Scaling"
+description: "Configure Managed Instance Groups and autoscaling policies to automatically adjust compute capacity based on CPU, load balancing, or custom metrics."
+---
+
+Managed Instance Groups (MIGs) let you run a collection of identical VM instances as a single logical unit. Instead of managing each VM individually, you define the desired configuration once in an instance template, and Google Infrastructure handles provisioning, health monitoring, self-healing, and capacity adjustments automatically.
+
+## Managed Instance Groups
+
+A MIG maintains a set of VM instances that share the same machine type, disk image, network configuration, and startup scripts. When an instance in the group becomes unhealthy, the MIG automatically recreates it from the template — keeping your desired capacity intact without manual intervention.
+
+MIGs support two modes:
+
+- **Stateless MIGs** — suited for web servers, API backends, and batch workers where each instance is interchangeable.
+- **Stateful MIGs** — suited for workloads that need persistent disks or unique per-instance configuration, such as databases or legacy applications.
+
+## Instance Templates
+
+An instance template is a reusable resource that defines the complete configuration for VMs in a group: machine type, OS image, disk size, network interfaces, service account, labels, and startup scripts. You cannot edit an existing template; instead, you create a new version and roll it out to the group.
+
+```bash
+gcloud compute instance-templates create my-template \
+  --machine-type=e2-standard-4 \
+  --image-family=debian-11 \
+  --image-project=debian-cloud
+```
+
+<Tip>
+  Store your startup scripts in Cloud Storage and reference them via the `--metadata startup-script-url` flag rather than embedding them inline. This keeps your template lightweight and makes script updates independent of template versioning.
+</Tip>
+
+## Autoscaling Policies
+
+Autoscaling adjusts the number of instances in a MIG in response to real-time demand. You configure a policy that defines the minimum and maximum instance count, the target metric, and the cooldown period.
+
+<CardGroup cols={3}>
+  <Card title="CPU Utilization" icon="gauge-high" href="/compute/scaling#cpu">
+    Scale out when average CPU utilization across the group exceeds your target threshold (e.g., 60%). This is the most common policy for general-purpose workloads.
+  </Card>
+  <Card title="HTTP Load Balancing" icon="globe" href="/compute/scaling#http-lb">
+    Scale based on the number of requests per second per instance reported by an HTTP(S) load balancer backend. Ideal for web and API tiers.
+  </Card>
+  <Card title="Custom Metrics" icon="chart-line" href="/compute/scaling#custom">
+    Use any Cloud Monitoring metric — including application-level metrics you publish — to drive scaling decisions for specialized workloads.
+  </Card>
+</CardGroup>
+
+## Rolling Updates
+
+Rolling updates let you deploy a new instance template to a MIG without taking all instances offline at once. You control the replacement rate (how many instances are updated simultaneously) and the maximum number of unavailable instances during the rollout.
+
+```bash
+gcloud compute instance-groups managed rolling-action start-update my-mig \
+  --version=template=my-template-v2 \
+  --zone=us-central1-a \
+  --max-surge=3 \
+  --max-unavailable=0
+```
+
+Set `--max-unavailable=0` to ensure full capacity is maintained throughout the update. Set `--max-surge` to the number of additional instances you allow to be created temporarily during the rollout.
+
+## Creating a MIG with Autoscaling
+
+<Steps>
+  <Step title="Create an instance template">
+    Define the VM configuration that every instance in the group will use. Specify the machine type, OS image, and any additional disks or metadata your application requires.
+
+    ```bash
+    gcloud compute instance-templates create my-template \
+      --machine-type=e2-standard-4 \
+      --image-family=debian-11 \
+      --image-project=debian-cloud
+    ```
+  </Step>
+  <Step title="Create a managed instance group from the template">
+    Create a zonal MIG with an initial size of three instances. Google Infrastructure immediately starts provisioning VMs from the template you created.
+
+    ```bash
+    gcloud compute instance-groups managed create my-mig \
+      --template=my-template \
+      --size=3 \
+      --zone=us-central1-a
+    ```
+  </Step>
+  <Step title="Configure an autoscaling policy">
+    Attach an autoscaling policy that keeps average CPU utilization at 60%, scaling between 2 and 10 instances as demand fluctuates.
+
+    ```bash
+    gcloud compute instance-groups managed set-autoscaling my-mig \
+      --zone=us-central1-a \
+      --min-num-replicas=2 \
+      --max-num-replicas=10 \
+      --target-cpu-utilization=0.6
+    ```
+  </Step>
+  <Step title="Verify scaling behavior">
+    Confirm that the autoscaler is active and inspect its current recommendations. Run a load test against your application and watch the instance count adjust in real time.
+
+    ```bash
+    # Describe the autoscaler to see its current state and recommended size
+    gcloud compute instance-groups managed describe my-mig \
+      --zone=us-central1-a
+
+    # List all instances currently in the group
+    gcloud compute instance-groups managed list-instances my-mig \
+      --zone=us-central1-a
+    ```
+
+    Navigate to **Compute Engine → Instance Groups → my-mig** in the Console to view the scaling graph and autoscaler event log.
+  </Step>
+</Steps>
+
+## Health Checks and Autohealing
+
+Attach an HTTP or TCP health check to your MIG so that Google Infrastructure can automatically detect and replace unhealthy instances without waiting for human intervention.
+
+```bash
+# Create a health check that probes port 80 every 10 seconds
+gcloud compute health-checks create http my-health-check \
+  --port=80 \
+  --check-interval=10s \
+  --unhealthy-threshold=3
+
+# Attach the health check to the MIG for autohealing
+gcloud compute instance-groups managed update my-mig \
+  --zone=us-central1-a \
+  --health-check=my-health-check \
+  --initial-delay=300
+```
+
+<Note>
+  Set `--initial-delay` to a value long enough for your application to fully start up. If the initial delay is too short, the MIG may mark a freshly provisioned instance as unhealthy and recreate it before it has a chance to initialize, creating a restart loop.
+</Note>
+
+## Regional MIGs for Multi-Zone Resilience
+
+<Note>
+  By default, MIGs are zonal — all instances reside in a single zone. For production workloads that require high availability, create a **regional MIG** instead. Regional MIGs distribute instances across multiple zones within a region, so a single zone outage does not take your application offline.
+
+  ```bash
+  gcloud compute instance-groups managed create my-regional-mig \
+    --template=my-template \
+    --size=6 \
+    --region=us-central1
+  ```
+
+  The autoscaler for a regional MIG balances capacity across zones automatically and respects the per-zone distribution shape you configure.
+</Note>

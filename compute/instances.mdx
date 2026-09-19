@@ -1,0 +1,125 @@
+---
+title: "Creating and Managing VM Instances on Google Infrastructure"
+sidebarTitle: "VM Instances"
+description: "Learn how to create, configure, and manage virtual machine instances on Google Infrastructure using machine types, boot disks, and networking options."
+---
+
+Virtual machine instances are the foundation of compute on Google Infrastructure. Whether you are running a web server, a database, or a batch processing job, VM instances give you flexible, scalable compute capacity that you configure to match your exact workload requirements.
+
+## Machine Types
+
+Google Infrastructure offers several families of machine types, each optimized for a different class of workload. Choose the family that best matches your CPU, memory, and performance needs.
+
+<CardGroup cols={2}>
+  <Card title="General Purpose: E2" icon="microchip" href="/compute/instances#e2">
+    Cost-effective instances for everyday workloads such as web servers, dev environments, and small databases. E2 machines offer a flexible vCPU-to-memory ratio.
+  </Card>
+  <Card title="General Purpose: N2" icon="server" href="/compute/instances#n2">
+    Higher performance general-purpose instances backed by Intel Cascade Lake. Ideal for medium-to-large workloads that need predictable performance.
+  </Card>
+  <Card title="Compute Optimized: C2" icon="bolt" href="/compute/instances#c2">
+    High-frequency Intel Scalable processors for compute-intensive workloads such as gaming servers, HPC, and media transcoding.
+  </Card>
+  <Card title="Memory Optimized: M2" icon="memory" href="/compute/instances#m2">
+    Ultra-high memory instances for in-memory databases, SAP HANA, and large-scale analytics requiring up to 12 TB of RAM.
+  </Card>
+</CardGroup>
+
+## Boot Disks and OS Images
+
+Every VM instance requires a boot disk. When you create an instance, you select an OS image that is used to initialize the disk. Google Infrastructure provides curated public images for the most common operating systems.
+
+| Image Family | Image Project | Best For |
+|---|---|---|
+| `debian-11` | `debian-cloud` | Stable, lightweight Linux servers |
+| `ubuntu-2204-lts` | `ubuntu-os-cloud` | Modern Linux with broad package support |
+| `centos-stream-9` | `centos-cloud` | RHEL-compatible enterprise Linux |
+| `windows-2022` | `windows-cloud` | Windows Server workloads and .NET apps |
+
+<Tip>
+  Use the `--image-family` flag when creating instances so that new VMs always launch from the latest patched image within that family, without requiring you to track specific image versions.
+</Tip>
+
+## Networking
+
+Each VM instance connects to a Virtual Private Cloud (VPC) network through a network interface. You specify the VPC network and subnet at creation time. By default, instances receive a private internal IP address. To allow inbound internet traffic, assign an external (ephemeral or static) IP address.
+
+- **Internal IP**: always assigned from the subnet's primary CIDR range.
+- **External IP**: optional; use an ephemeral address for temporary access or reserve a static IP for production endpoints.
+- **Firewall rules**: traffic to and from instances is governed by VPC firewall rules that you apply by tag or service account.
+
+## SSH Access
+
+Google Infrastructure provides two ways to connect to Linux instances over SSH.
+
+**`gcloud compute ssh`** — the simplest option. It automatically generates an SSH key pair, uploads the public key to the instance metadata, and opens a terminal session.
+
+```bash
+gcloud compute ssh my-instance --zone=us-central1-a
+```
+
+**OS Login** — links SSH access to your Google identity. Enable it by setting the `enable-oslogin=TRUE` metadata key on the instance or at the project level. OS Login supports two-factor authentication and integrates with IAM roles for granular access control.
+
+## Creating an Instance
+
+<Steps>
+  <Step title="Create an instance via the Console">
+    1. Open the **Google Cloud Console** and navigate to **Compute Engine → VM Instances**.
+    2. Click **Create Instance**.
+    3. Enter a **Name** for your instance (e.g., `my-instance`).
+    4. Select a **Region** and **Zone** (e.g., `us-central1`, `us-central1-a`).
+    5. Under **Machine configuration**, choose a machine family and type (e.g., `e2-standard-4`).
+    6. Under **Boot disk**, click **Change**, select your OS image (e.g., `Debian 11`), set the disk size (e.g., `50 GB`), and click **Select**.
+    7. Under **Networking**, confirm the default VPC network and subnet, or select a custom one. Enable **External IP** if needed.
+    8. Click **Create** and wait for the instance to reach the **Running** state.
+  </Step>
+  <Step title="Create an instance via the CLI">
+    Run the following command to create a Debian 11 instance in `us-central1-a` with a 50 GB boot disk:
+
+    ```bash
+    gcloud compute instances create my-instance \
+      --zone=us-central1-a \
+      --machine-type=e2-standard-4 \
+      --image-family=debian-11 \
+      --image-project=debian-cloud \
+      --boot-disk-size=50GB
+    ```
+
+    The CLI returns the instance name, zone, internal IP, and external IP once provisioning completes.
+  </Step>
+</Steps>
+
+## Starting, Stopping, and Deleting Instances
+
+Use the following commands to control the lifecycle of an existing instance. Stopping an instance releases its vCPU and memory resources (billing stops for compute), but the boot disk persists and continues to incur storage charges.
+
+```bash
+# Start a stopped instance
+gcloud compute instances start my-instance --zone=us-central1-a
+
+# Stop a running instance (graceful shutdown)
+gcloud compute instances stop my-instance --zone=us-central1-a
+
+# Permanently delete an instance and its boot disk
+gcloud compute instances delete my-instance --zone=us-central1-a
+```
+
+<Warning>
+  The `delete` command is irreversible. By default it also deletes the boot disk. Pass `--keep-disks=boot` to retain the disk if you need to recover data or recreate the instance later.
+</Warning>
+
+## Pricing
+
+<Accordion title="How VM instance pricing works">
+  VM instances are billed **per second** with a one-minute minimum. Billing starts when the instance enters the `RUNNING` state and stops when it is terminated or deleted.
+
+  **Sustained use discounts** apply automatically. If you run an instance for more than 25% of a billing month, Google Infrastructure applies incremental discounts that scale up to 30% for instances running the full month — no commitment or sign-up required.
+
+  **Committed use discounts** let you reserve capacity for 1 or 3 years in exchange for discounts of up to 57% for general-purpose machine types and up to 70% for memory-optimized types.
+
+  Use the [Google Cloud Pricing Calculator](https://cloud.google.com/products/calculator) to estimate monthly costs before you deploy.
+</Accordion>
+
+<Tip>
+  For fault-tolerant workloads such as batch jobs, rendering pipelines, or stateless web tiers, use **Spot VMs** (formerly preemptible VMs). Spot VMs are spare capacity instances available at up to an 91% discount. They can be preempted by Google Infrastructure with a 30-second notice, so design your workload to checkpoint progress and handle restarts gracefully.
+</Tip>

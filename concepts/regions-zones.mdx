@@ -1,0 +1,169 @@
+---
+title: "Regions and Zones in Google Infrastructure"
+sidebarTitle: "Regions & Zones"
+description: "Understand how regions and zones shape where your workloads run, how to choose the right location, and how to design for high availability."
+---
+
+Where you deploy your workloads affects latency, availability, data residency compliance, and cost. Google Infrastructure organizes its global footprint into **regions** and **zones** — independent geographic areas and isolated deployment units within them. Understanding the relationship between regions and zones, and how different resource types relate to each, is essential for designing resilient and compliant infrastructure.
+
+## Regions
+
+A **region** is an independent geographic area containing multiple zones. Regions are physically separated from each other — typically hundreds to thousands of miles apart — which means a regional outage in one location does not affect workloads running in another.
+
+Each region has a short identifier that encodes its location:
+
+- `us-central1` — Council Bluffs, Iowa, USA
+- `us-east4` — Ashburn, Virginia, USA
+- `europe-west1` — St. Ghislain, Belgium
+- `europe-north1` — Hamina, Finland
+- `asia-east1` — Changhua County, Taiwan
+- `asia-southeast1` — Jurong West, Singapore
+- `australia-southeast1` — Sydney, Australia
+
+When you choose a region, consider three factors:
+
+1. **Latency** — Deploy in the region geographically closest to your users to minimize round-trip time. Use speed-of-light estimates: users in São Paulo experience roughly 100 ms to North American regions and under 20 ms to `southamerica-east1`.
+2. **Data residency** — Regulatory frameworks like GDPR may require that certain data stay within specific jurisdictions. Choose a region that keeps your data in the required geography.
+3. **Service availability** — Not every Google Infrastructure service or configuration option is available in every region. Check the regional availability documentation before committing to a region for a new workload.
+
+## Zones
+
+A **zone** is an isolated deployment area within a region. Each region contains at least three zones, identified by appending a letter suffix to the region name:
+
+```text
+us-central1-a
+us-central1-b
+us-central1-c
+us-central1-f
+```
+
+Zones have independent power, cooling, networking, and failure domains. A failure in `us-central1-a` does not affect `us-central1-b`. This independence is what makes distributing workloads across zones the primary mechanism for achieving high availability within a region.
+
+<Tip>
+  Distribute your VM instances, database replicas, and stateful workloads across at least two zones in the same region. A single-zone deployment has a single point of failure — if that zone experiences an outage, your entire workload goes down. Spreading across zones adds resilience with negligible latency overhead, since inter-zone traffic within a region travels over Google's low-latency internal backbone.
+</Tip>
+
+## Zonal vs. Regional vs. Global Resources
+
+Not all resources have the same geographic scope. Understanding a resource's scope tells you where it lives, how it fails, and how it is billed for network egress.
+
+| Scope | Examples | Notes |
+|-------|----------|-------|
+| **Zonal** | VM instances, persistent disks, node pools | Lives in a single zone; unavailable if that zone fails |
+| **Regional** | Regional managed instance groups, regional persistent disks, Cloud SQL HA replicas | Automatically distributed across zones within a region |
+| **Global** | VPC networks, firewall rules, Cloud Load Balancing, Cloud CDN | No single-zone or single-region dependency |
+| **Multi-region** | Cloud Storage multi-region buckets, Spanner multi-region configs | Data replicated across multiple regions for geo-redundancy |
+
+For example, a VPC network is global — it spans all regions — while the subnets inside it are regional. VM instances are zonal, but a regional managed instance group automatically spreads those VMs across all zones in the region.
+
+## Major Regions by Geography
+
+<CardGroup cols={3}>
+  <Card title="Americas" icon="earth-americas" href="/concepts/regions-zones">
+    **North America**
+    - `us-central1` — Iowa
+    - `us-east1` — South Carolina
+    - `us-east4` — Virginia
+    - `us-west1` — Oregon
+    - `northamerica-northeast1` — Montréal
+
+    **South America**
+    - `southamerica-east1` — São Paulo
+    - `southamerica-west1` — Santiago
+  </Card>
+  <Card title="Europe" icon="earth-europe" href="/concepts/regions-zones">
+    **Western Europe**
+    - `europe-west1` — Belgium
+    - `europe-west2` — London
+    - `europe-west3` — Frankfurt
+    - `europe-west4` — Netherlands
+
+    **Northern & Southern Europe**
+    - `europe-north1` — Finland
+    - `europe-southwest1` — Madrid
+    - `europe-central2` — Warsaw
+  </Card>
+  <Card title="Asia Pacific" icon="earth-asia" href="/concepts/regions-zones">
+    **East Asia**
+    - `asia-east1` — Taiwan
+    - `asia-east2` — Hong Kong
+    - `asia-northeast1` — Tokyo
+    - `asia-northeast3` — Seoul
+
+    **Southeast Asia & Pacific**
+    - `asia-southeast1` — Singapore
+    - `asia-south1` — Mumbai
+    - `australia-southeast1` — Sydney
+  </Card>
+</CardGroup>
+
+## Multi-Region Resources
+
+Some services let you store and serve data across multiple regions simultaneously. A Cloud Storage bucket set to the `US` or `EU` multi-region automatically replicates your data across several geographically separated regions within that continent. This provides:
+
+- **Higher availability** — data remains accessible even if an entire region is unavailable
+- **Lower read latency** — data is served from whichever regional replica is closest to the requester
+- **Simplified disaster recovery** — no manual replication configuration required
+
+```bash
+# Create a multi-region storage bucket
+gcloud storage buckets create gs://my-global-bucket \
+  --location=US \
+  --project=my-project
+```
+
+<Info>
+  Multi-region and dual-region configurations cost more per GB stored than single-region buckets because Google replicates your data across multiple physical locations. Evaluate whether the availability and latency benefits justify the additional cost for each workload.
+</Info>
+
+## Listing Regions and Zones via CLI
+
+Use the `gcloud` CLI to query the current set of available regions and zones:
+
+```bash
+gcloud compute regions list
+```
+
+```bash
+gcloud compute zones list --filter="region=us-central1"
+```
+
+To check which zones are currently available (as opposed to having maintenance or degraded capacity):
+
+```bash
+gcloud compute zones list \
+  --filter="region=us-central1 AND status=UP" \
+  --format="table(name,status)"
+```
+
+<CodeGroup>
+  ```bash List all zones across all regions
+  gcloud compute zones list \
+    --format="table(name,region,status)"
+  ```
+
+  ```bash List regions available for a specific resource type
+  gcloud compute regions describe us-central1 \
+    --format="yaml(quotas)"
+  ```
+</CodeGroup>
+
+## Choosing a Region Checklist
+
+<Steps>
+  <Step title="Identify your users' location">
+    Use latency measurement tools or existing analytics to determine where most of your traffic originates. Choose the region with the lowest round-trip time to that population.
+  </Step>
+  <Step title="Check data residency requirements">
+    Review any applicable regulations (GDPR, HIPAA, local data sovereignty laws) and confirm the region you are considering satisfies them. Document your decision for compliance purposes.
+  </Step>
+  <Step title="Verify service availability">
+    Confirm that every service your architecture depends on is available in your target region. Some newer services launch in a limited set of regions first and expand over time.
+  </Step>
+  <Step title="Review regional quotas">
+    Check that the default quotas in your target region are sufficient for your expected resource usage. Request increases before launch — quota increases can take 24 to 48 hours to process.
+  </Step>
+  <Step title="Plan for multi-zone deployment">
+    Identify which of your resources are zonal and plan to deploy them across at least two zones. Configure regional managed instance groups, regional disk replicas, or cross-zone load balancing as appropriate for each workload.
+  </Step>
+</Steps>

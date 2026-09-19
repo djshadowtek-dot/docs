@@ -1,0 +1,166 @@
+---
+title: "Serverless Compute with Cloud Functions and Cloud Run"
+sidebarTitle: "Serverless"
+description: "Deploy event-driven functions and containerized HTTP services that scale automatically to zero, eliminating the need to provision or manage any underlying infrastructure."
+---
+
+Serverless compute on Google Infrastructure lets you run code without provisioning or managing servers. You deploy your application logic, and the platform handles capacity planning, scaling, patching, and availability automatically. Google Infrastructure offers two complementary serverless products: **Cloud Functions** for lightweight event-driven handlers and **Cloud Run** for stateless containerized services.
+
+## Cloud Functions
+
+Cloud Functions is a Functions-as-a-Service (FaaS) platform that executes individual functions in response to events. Each function is a single-purpose unit of code that runs in an isolated, fully managed environment. You pay only for the compute time your function consumes, billed to the nearest 100 milliseconds.
+
+Cloud Functions supports the following trigger types:
+
+<CardGroup cols={3}>
+  <Card title="HTTP Triggers" icon="globe" href="/compute/serverless#http">
+    Invoke a function directly via an HTTPS endpoint. Use HTTP functions for webhooks, REST APIs, and server-side form processing.
+  </Card>
+  <Card title="Pub/Sub Messages" icon="envelope" href="/compute/serverless#pubsub">
+    Subscribe a function to a Pub/Sub topic and execute it for every message published. Ideal for asynchronous pipelines and decoupled microservices.
+  </Card>
+  <Card title="Cloud Storage Events" icon="bucket" href="/compute/serverless#storage">
+    Trigger a function when objects are created, updated, or deleted in a Cloud Storage bucket. Common for image processing, ETL, and file validation pipelines.
+  </Card>
+</CardGroup>
+
+Supported runtimes include Python, Node.js, Go, Java, Ruby, .NET, and PHP.
+
+## Cloud Run
+
+Cloud Run is a fully managed container runtime that executes stateless containers in response to HTTP requests. You package your application as a container image, push it to a registry, and deploy it to Cloud Run — the platform handles provisioning, scaling, and SSL termination. Cloud Run scales down to zero instances when there is no traffic, and scales up in seconds when requests arrive.
+
+Key characteristics of Cloud Run:
+
+- **Bring any language or dependency**: your container can include any runtime, binary, or library.
+- **Concurrency**: a single container instance can handle multiple simultaneous requests (configurable up to 1000), making Cloud Run efficient for I/O-bound services.
+- **Custom domains and HTTPS**: map your own domain and Cloud Run provisions a managed TLS certificate automatically.
+- **VPC connectivity**: connect Cloud Run services to private resources in your VPC using Serverless VPC Access.
+
+## Choosing Between Cloud Functions and Cloud Run
+
+| | Cloud Functions | Cloud Run |
+|---|---|---|
+| **Deployment unit** | Single function | Container image |
+| **Best for** | Simple event handlers, glue logic | Stateless HTTP services, APIs, workers |
+| **Runtime control** | Managed by platform | Full control via Dockerfile |
+| **Concurrency per instance** | 1 request | Up to 1000 requests |
+| **Max request timeout** | 60 minutes (2nd gen) | 60 minutes |
+| **Cold start** | Typically faster | Slightly longer (container startup) |
+
+Use Cloud Functions when you need to wire together Google Cloud services with minimal code and no containerization. Use Cloud Run when you need full control over the runtime, want to migrate an existing containerized service, or require high per-instance concurrency.
+
+## Deploying Serverless Workloads
+
+<Tabs>
+  <Tab title="Cloud Functions">
+    Deploy an HTTP-triggered Python function that responds to GET and POST requests. Create a file named `main.py` with your function code, then run:
+
+    ```bash
+    gcloud functions deploy hello_http \
+      --runtime=python311 \
+      --trigger-http \
+      --allow-unauthenticated \
+      --region=us-central1
+    ```
+
+    After deployment completes, the CLI prints the function's HTTPS endpoint URL. Test it immediately:
+
+    ```bash
+    curl https://us-central1-MY_PROJECT_ID.cloudfunctions.net/hello_http
+    ```
+
+    To deploy a Pub/Sub-triggered function instead, replace `--trigger-http` with `--trigger-topic=MY_TOPIC`:
+
+    ```bash
+    gcloud functions deploy process_message \
+      --runtime=python311 \
+      --trigger-topic=my-topic \
+      --region=us-central1
+    ```
+  </Tab>
+  <Tab title="Cloud Run">
+    Build your container image and push it to Container Registry or Artifact Registry, then deploy it as a Cloud Run service:
+
+    ```bash
+    gcloud run deploy my-service \
+      --image=gcr.io/my-project/my-image:latest \
+      --platform=managed \
+      --region=us-central1 \
+      --allow-unauthenticated
+    ```
+
+    Cloud Run returns a stable HTTPS URL for your service immediately after deployment. To update the service, deploy a new container image to the same service name — Cloud Run performs a zero-downtime rollout automatically.
+
+    Configure concurrency and resource limits to match your application's characteristics:
+
+    ```bash
+    gcloud run deploy my-service \
+      --image=gcr.io/my-project/my-image:latest \
+      --platform=managed \
+      --region=us-central1 \
+      --concurrency=80 \
+      --cpu=2 \
+      --memory=512Mi \
+      --allow-unauthenticated
+    ```
+  </Tab>
+</Tabs>
+
+## Scaling Behavior
+
+Both Cloud Functions and Cloud Run scale from zero: when no requests are in flight, no instances run and no compute charges accrue. As traffic arrives, the platform rapidly scales out instances to meet demand.
+
+**Cloud Run concurrency** is the key lever for tuning scale-out behavior. Each Cloud Run instance can handle multiple requests simultaneously. If your service is CPU-bound, lower the concurrency limit so that the platform creates more instances sooner. If your service is I/O-bound (e.g., awaiting database responses), a higher concurrency limit lets each instance efficiently multiplex many requests.
+
+```bash
+# Set concurrency to 10 for a CPU-intensive workload
+gcloud run services update my-service \
+  --concurrency=10 \
+  --region=us-central1
+
+# Set concurrency to 200 for an I/O-bound service
+gcloud run services update my-service \
+  --concurrency=200 \
+  --region=us-central1
+```
+
+## Cold Starts and Minimum Instances
+
+<Note>
+  When all instances have scaled to zero, the first request after a period of inactivity incurs a **cold start** — the platform must provision a new instance and initialize your function or container before it can serve traffic. Cold start latency is typically 200 ms–2 s depending on runtime, image size, and initialization code.
+
+  To eliminate cold starts for latency-sensitive workloads, configure a **minimum number of instances**. These instances remain warm and ready to serve traffic at all times, even when there is no active load.
+
+  ```bash
+  # Cloud Run: keep at least 1 instance warm at all times
+  gcloud run services update my-service \
+    --min-instances=1 \
+    --region=us-central1
+
+  # Cloud Functions: keep at least 1 instance warm
+  gcloud functions deploy hello_http \
+    --runtime=python311 \
+    --trigger-http \
+    --min-instances=1 \
+    --region=us-central1
+  ```
+
+  Minimum instances are billed for idle time at a reduced rate. Use them selectively for user-facing services where even occasional latency spikes are unacceptable. Background processing functions and infrequently called webhooks rarely need minimum instances configured.
+</Note>
+
+## Observability
+
+Cloud Functions and Cloud Run automatically emit logs to **Cloud Logging** and metrics to **Cloud Monitoring**. Query function and service logs directly from the CLI:
+
+```bash
+# Stream Cloud Run service logs in real time
+gcloud run services logs tail my-service --region=us-central1
+
+# View recent Cloud Functions logs
+gcloud functions logs read hello_http --region=us-central1 --limit=50
+```
+
+<Tip>
+  Use **structured logging** (JSON output) in your functions and containers to make log entries queryable by field in Cloud Logging. Libraries such as `google-cloud-logging` for Python and `@google-cloud/logging` for Node.js handle structured log formatting automatically.
+</Tip>

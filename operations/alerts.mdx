@@ -1,0 +1,197 @@
+---
+title: "Cloud Monitoring Alerts: Proactive Incident Response"
+sidebarTitle: "Alerts"
+description: "Configure alerting policies with conditions, notification channels, and documentation so your team is notified the moment a metric crosses a critical threshold."
+---
+
+Alerting policies in Cloud Monitoring notify you when a metric crosses a defined threshold, a resource becomes unavailable, or an expected condition stops being true — giving your team the signal it needs to respond before a problem affects users. Each policy combines conditions that define what to watch, notification channels that define who to tell, and documentation that gives responders context when they receive the alert. This guide covers how to build alerting policies from scratch, configure notification channels, and apply common templates for typical infrastructure scenarios.
+
+## Alert Policy Components
+
+Every alerting policy is made up of three building blocks:
+
+- **Conditions** define the metric, filter, aggregation, comparison, threshold value, and duration that must be satisfied before the alert fires. A policy can have multiple conditions combined with AND or OR logic.
+- **Notification channels** determine where alerts are sent when conditions are met — email, Slack, PagerDuty, SMS, Pub/Sub, or a custom webhook.
+- **Documentation** is a free-text field attached to the alert notification. Include runbook links, escalation contacts, and remediation steps so responders have everything they need without searching through wikis during an incident.
+
+## Creating an Alerting Policy via CLI
+
+Define your alerting policy as a JSON file and apply it using the `gcloud` CLI. This approach works well for infrastructure-as-code workflows where you want policies tracked in version control alongside the resources they monitor.
+
+```bash
+gcloud alpha monitoring policies create --policy-from-file=alert-policy.json
+```
+
+To list existing policies and retrieve their IDs:
+
+```bash
+gcloud alpha monitoring policies list --project=my-project
+```
+
+To update an existing policy:
+
+```bash
+gcloud alpha monitoring policies update POLICY_ID \
+  --policy-from-file=updated-policy.json
+```
+
+## Example: CPU Utilization Alert
+
+The following policy fires when the average CPU utilization of any Compute Engine instance exceeds 80% for 5 consecutive minutes.
+
+```json
+{
+  "displayName": "High CPU Alert",
+  "conditions": [{
+    "displayName": "CPU > 80%",
+    "conditionThreshold": {
+      "filter": "metric.type=\"compute.googleapis.com/instance/cpu/utilization\"",
+      "aggregations": [{
+        "alignmentPeriod": "60s",
+        "perSeriesAligner": "ALIGN_MEAN"
+      }],
+      "comparison": "COMPARISON_GT",
+      "thresholdValue": 0.8,
+      "duration": "300s"
+    }
+  }],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  },
+  "notificationChannels": [
+    "projects/my-project/notificationChannels/CHANNEL_ID"
+  ],
+  "documentation": {
+    "content": "CPU utilization has exceeded 80% for 5 minutes. Check for runaway processes, unexpected traffic spikes, or under-provisioned instance types. Runbook: https://wiki.example.com/runbooks/high-cpu",
+    "mimeType": "text/markdown"
+  }
+}
+```
+
+Replace `CHANNEL_ID` with the ID of a notification channel you have already created (see below). Set `autoClose` to automatically resolve the alert incident after the condition has cleared for the specified duration.
+
+## Notification Channels
+
+Cloud Monitoring supports a range of notification channels. Configure one or more channels and reference them in your alerting policies.
+
+| Channel Type | Use Case |
+|---|---|
+| **Email** | Low-urgency alerts, daily summaries, or backup escalation paths |
+| **SMS** | High-urgency on-call notifications for engineers without smartphones |
+| **PagerDuty** | Full incident management integration with on-call schedules and escalations |
+| **Slack** | Team-wide visibility into alerts in a shared channel |
+| **Pub/Sub** | Custom automation — route alerts to Cloud Functions or Cloud Run for auto-remediation |
+| **Webhook** | Integration with any HTTP-based alerting or ticketing system |
+
+### Setting Up a Slack Notification Channel
+
+```bash
+gcloud alpha monitoring channels create \
+  --display-name="Slack Alerts" \
+  --type=slack \
+  --channel-labels=channel_name=#alerts
+```
+
+After running this command, the Cloud Console will prompt you to authorize the Slack integration and select the workspace. Once authorized, test the channel by sending a verification notification from **Monitoring → Alerting → Notification Channels**.
+
+### Setting Up an Email Notification Channel
+
+```bash
+gcloud alpha monitoring channels create \
+  --display-name="On-Call Email" \
+  --type=email \
+  --channel-labels=email_address=oncall@example.com
+```
+
+<Tip>
+  For user-facing services with defined reliability targets, use **SLO-based alerting** instead of raw metric thresholds. SLO alerting fires when your error budget is burning faster than your target allows — for example, when you are consuming 5% of your 30-day error budget in a single hour. This approach produces fewer false positives than threshold alerts and directly ties your alerting to customer impact. Define SLOs in Cloud Monitoring under **Monitoring → Services → SLOs** and attach alerting policies to the burn rate condition.
+</Tip>
+
+## Common Alert Policy Templates
+
+<Accordion title="High CPU utilization (> 80% for 5 minutes)">
+  Fires when average CPU utilization on any Compute Engine instance exceeds 80% for 5 consecutive minutes. Investigate for runaway processes, unexpected traffic, or the need to vertically scale the instance.
+
+  ```json
+  {
+    "displayName": "High CPU Utilization",
+    "conditions": [{
+      "displayName": "CPU utilization > 80%",
+      "conditionThreshold": {
+        "filter": "metric.type=\"compute.googleapis.com/instance/cpu/utilization\"",
+        "aggregations": [{"alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MEAN"}],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.8,
+        "duration": "300s"
+      }
+    }],
+    "notificationChannels": ["projects/my-project/notificationChannels/CHANNEL_ID"]
+  }
+  ```
+</Accordion>
+
+<Accordion title="Low disk space (< 10% free)">
+  Fires when available disk space on a Compute Engine instance falls below 10% of total capacity. Investigate for log accumulation, large temporary files, or the need to expand the persistent disk.
+
+  ```json
+  {
+    "displayName": "Low Disk Space",
+    "conditions": [{
+      "displayName": "Disk free < 10%",
+      "conditionThreshold": {
+        "filter": "metric.type=\"agent.googleapis.com/disk/percent_used\" AND metric.labels.state=\"free\"",
+        "aggregations": [{"alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MEAN"}],
+        "comparison": "COMPARISON_LT",
+        "thresholdValue": 10,
+        "duration": "120s"
+      }
+    }],
+    "notificationChannels": ["projects/my-project/notificationChannels/CHANNEL_ID"]
+  }
+  ```
+</Accordion>
+
+<Accordion title="HTTP error rate (5xx > 1% of requests)">
+  Fires when the rate of HTTP 5xx responses from a Cloud Run service or external HTTPS load balancer exceeds 1% of total requests over a 5-minute window. Investigate application exceptions, backend timeouts, or dependency failures.
+
+  ```json
+  {
+    "displayName": "High HTTP Error Rate",
+    "conditions": [{
+      "displayName": "5xx error rate > 1%",
+      "conditionThreshold": {
+        "filter": "metric.type=\"run.googleapis.com/request_count\" AND metric.labels.response_code_class=\"5xx\"",
+        "aggregations": [{"alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_RATE"}],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.01,
+        "duration": "0s"
+      }
+    }],
+    "notificationChannels": ["projects/my-project/notificationChannels/CHANNEL_ID"]
+  }
+  ```
+</Accordion>
+
+<Accordion title="Latency P99 > 2 seconds">
+  Fires when the 99th-percentile request latency for a Cloud Run service or load-balanced backend exceeds 2 seconds over a 5-minute window. Investigate slow database queries, upstream service degradation, or cold-start behavior.
+
+  ```json
+  {
+    "displayName": "High Latency P99",
+    "conditions": [{
+      "displayName": "P99 latency > 2s",
+      "conditionThreshold": {
+        "filter": "metric.type=\"run.googleapis.com/request_latencies\"",
+        "aggregations": [{
+          "alignmentPeriod": "300s",
+          "perSeriesAligner": "ALIGN_PERCENTILE_99"
+        }],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 2000,
+        "duration": "0s"
+      }
+    }],
+    "notificationChannels": ["projects/my-project/notificationChannels/CHANNEL_ID"]
+  }
+  ```
+</Accordion>

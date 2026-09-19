@@ -1,0 +1,145 @@
+---
+title: "Google Infrastructure Go SDK: Getting Started"
+sidebarTitle: "Go"
+description: "Install and use the Google Infrastructure Go client libraries to manage compute instances and Cloud Storage from idiomatic, context-aware Go applications."
+---
+
+The Google Infrastructure Go SDK is published as a set of Go modules under `cloud.google.com/go`. Each module follows idiomatic Go conventions: clients are created with constructor functions, all operations accept a `context.Context`, and errors are returned as values. The libraries use Application Default Credentials automatically, so authentication is handled without any extra code.
+
+## Install the modules
+
+Fetch only the modules you need. The example below installs the Compute Engine and Cloud Storage clients.
+
+```bash
+go get cloud.google.com/go/compute/apiv1
+go get cloud.google.com/go/storage
+```
+
+Run `go mod tidy` after adding dependencies to keep your `go.sum` file consistent.
+
+## Authenticate with ADC
+
+The Go SDK resolves credentials through Application Default Credentials at client construction time. For service accounts, set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to the path of your key file before running your application.
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+```
+
+For local development, authenticate interactively instead:
+
+```bash
+gcloud auth application-default login
+```
+
+No code changes are required — the client constructors call `google.FindDefaultCredentials` internally.
+
+## Create a VM instance
+
+The following function creates a Compute Engine instance using the REST-based client. The proto helper `proto.String` and `proto.Bool` wrap scalar values in pointers as required by the protobuf message types.
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    compute "cloud.google.com/go/compute/apiv1"
+    computepb "cloud.google.com/go/compute/apiv1/computepb"
+    "google.golang.org/protobuf/proto"
+)
+
+func createInstance(projectID, zone, instanceName string) error {
+    ctx := context.Background()
+    instancesClient, err := compute.NewInstancesRESTClient(ctx)
+    if err != nil {
+        return err
+    }
+    defer instancesClient.Close()
+
+    req := &computepb.InsertInstanceRequest{
+        Project: projectID,
+        Zone:    zone,
+        InstanceResource: &computepb.Instance{
+            Name:        proto.String(instanceName),
+            MachineType: proto.String(fmt.Sprintf("zones/%s/machineTypes/e2-standard-4", zone)),
+            Disks: []*computepb.AttachedDisk{{
+                Boot:       proto.Bool(true),
+                AutoDelete: proto.Bool(true),
+                InitializeParams: &computepb.AttachedDiskInitializeParams{
+                    SourceImage: proto.String("projects/debian-cloud/global/images/family/debian-11"),
+                },
+            }},
+            NetworkInterfaces: []*computepb.NetworkInterface{{
+                Network: proto.String("global/networks/default"),
+            }},
+        },
+    }
+
+    op, err := instancesClient.Insert(ctx, req)
+    if err != nil {
+        return err
+    }
+    return op.Wait(ctx)
+}
+```
+
+Call the function from `main` and handle the returned error:
+
+```go
+func main() {
+    if err := createInstance("my-gcp-project", "us-central1-a", "web-server-01"); err != nil {
+        log.Fatalf("failed to create instance: %v", err)
+    }
+    fmt.Println("Instance created successfully.")
+}
+```
+
+## Upload a file to Cloud Storage
+
+The `cloud.google.com/go/storage` client streams object data through an `io.Writer`, which makes it efficient for both small files and large uploads.
+
+```go
+import (
+    "context"
+    "io"
+    "os"
+
+    "cloud.google.com/go/storage"
+)
+
+func uploadFile(bucket, object, localPath string) error {
+    ctx := context.Background()
+    client, err := storage.NewClient(ctx)
+    if err != nil {
+        return err
+    }
+    defer client.Close()
+
+    f, err := os.Open(localPath)
+    if err != nil {
+        return err
+    }
+    defer f.Close()
+
+    wc := client.Bucket(bucket).Object(object).NewWriter(ctx)
+    if _, err = io.Copy(wc, f); err != nil {
+        return err
+    }
+    return wc.Close()
+}
+```
+
+Always call `wc.Close()` to flush the final chunk and commit the object. If you cancel the context before calling `Close`, the upload is aborted and no object is written.
+
+<Tip>
+  Use context cancellation to enforce timeouts on any API call. Wrap `context.Background()` with a deadline before passing it to a client constructor or method:
+
+  ```go
+  ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+  defer cancel()
+
+  op, err := instancesClient.Insert(ctx, req)
+  ```
+
+  When the deadline elapses, the context is cancelled, the in-flight request is terminated, and the returned error satisfies `errors.Is(err, context.DeadlineExceeded)`. Apply this pattern consistently across all calls to prevent goroutine leaks in long-running services.
+</Tip>

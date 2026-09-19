@@ -1,0 +1,213 @@
+---
+title: "Cloud VPN: Secure On-Premises Connectivity on Google Infrastructure"
+sidebarTitle: "VPN"
+description: "Securely connect your on-premises or multi-cloud network to a Google Infrastructure VPC over encrypted IPsec tunnels using HA VPN or Classic VPN."
+---
+
+Cloud VPN extends your on-premises network into a Google Infrastructure VPC by establishing encrypted IPsec tunnels over the public internet. Traffic between your on-premises environment and your VPC remains encrypted end-to-end, allowing your workloads to communicate as if they shared a single private network. Google Infrastructure supports two VPN products: **HA VPN** (recommended) and **Classic VPN**.
+
+## HA VPN vs. Classic VPN
+
+HA VPN is the recommended choice for all new deployments. It provides a 99.99% availability SLA when configured with two active tunnels — one per gateway interface — and supports only dynamic BGP routing.
+
+| Feature | HA VPN | Classic VPN |
+|---|---|---|
+| Availability SLA | **99.99%** | 99.9% |
+| Routing | BGP (dynamic) only | Static, route-based, or policy-based |
+| Gateway interfaces | 2 (active/active) | 1 |
+| Max throughput per tunnel | 3 Gbps | 3 Gbps |
+| Recommended | ✅ Yes | Legacy only |
+
+<Note>
+  Each Cloud VPN tunnel supports a maximum throughput of **3 Gbps** in each direction. If your workload requires more bandwidth, deploy multiple tunnels in parallel — traffic is distributed across all active tunnels using ECMP (Equal-Cost Multi-Path) routing when BGP announces equal-cost routes. For bandwidth requirements above approximately 10 Gbps, or for latency-sensitive workloads, consider Cloud Interconnect instead.
+</Note>
+
+## Set Up HA VPN
+
+The steps below configure an HA VPN gateway, an external peer gateway (representing your on-premises VPN device), two tunnels, and BGP sessions.
+
+<Steps>
+  <Step title="Create the HA VPN gateway">
+    The gateway is created with two interfaces, each receiving an automatically assigned external IP address.
+
+    ```bash
+    gcloud compute vpn-gateways create my-vpn-gw \
+      --network=my-vpc \
+      --region=us-central1
+    ```
+
+    Note the two external IP addresses assigned to interfaces 0 and 1:
+
+    ```bash
+    gcloud compute vpn-gateways describe my-vpn-gw --region=us-central1
+    ```
+  </Step>
+  <Step title="Create the external peer gateway">
+    Represent your on-premises VPN device as an external peer gateway. Provide the public IP addresses of your on-premises device's interfaces.
+
+    ```bash
+    gcloud compute external-vpn-gateways create peer-gw \
+      --interfaces=0=198.51.100.1,1=198.51.100.2
+    ```
+  </Step>
+  <Step title="Create Cloud Routers for BGP">
+    Cloud Router manages BGP sessions and propagates routes dynamically between your VPC and on-premises network.
+
+    ```bash
+    gcloud compute routers create my-cloud-router \
+      --region=us-central1 \
+      --network=my-vpc \
+      --asn=65001
+    ```
+  </Step>
+  <Step title="Create the VPN tunnels">
+    Create two tunnels — one per gateway interface — for HA VPN redundancy. Use IKEv2 and a strong shared secret.
+
+    ```bash
+    gcloud compute vpn-tunnels create tunnel-1 \
+      --peer-external-gateway=peer-gw \
+      --peer-external-gateway-interface=0 \
+      --vpn-gateway=my-vpn-gw \
+      --region=us-central1 \
+      --ike-version=2 \
+      --shared-secret=my-shared-secret \
+      --router=my-cloud-router \
+      --interface=0
+
+    gcloud compute vpn-tunnels create tunnel-2 \
+      --peer-external-gateway=peer-gw \
+      --peer-external-gateway-interface=1 \
+      --vpn-gateway=my-vpn-gw \
+      --region=us-central1 \
+      --ike-version=2 \
+      --shared-secret=my-shared-secret \
+      --router=my-cloud-router \
+      --interface=1
+    ```
+  </Step>
+  <Step title="Configure BGP interfaces and peers on the Cloud Router">
+    Each tunnel requires a BGP interface on the Cloud Router and a BGP peer representing the on-premises router. Use link-local addresses from `169.254.0.0/16` for BGP sessions.
+
+    ```bash
+    # Add BGP interface for tunnel-1
+    gcloud compute routers add-interface my-cloud-router \
+      --region=us-central1 \
+      --interface-name=bgp-tunnel-1 \
+      --vpn-tunnel=tunnel-1 \
+      --ip-address=169.254.0.1 \
+      --mask-length=30
+
+    # Add BGP peer for tunnel-1
+    gcloud compute routers add-bgp-peer my-cloud-router \
+      --region=us-central1 \
+      --peer-name=bgp-peer-1 \
+      --interface=bgp-tunnel-1 \
+      --peer-ip-address=169.254.0.2 \
+      --peer-asn=65002
+
+    # Add BGP interface for tunnel-2
+    gcloud compute routers add-interface my-cloud-router \
+      --region=us-central1 \
+      --interface-name=bgp-tunnel-2 \
+      --vpn-tunnel=tunnel-2 \
+      --ip-address=169.254.1.1 \
+      --mask-length=30
+
+    # Add BGP peer for tunnel-2
+    gcloud compute routers add-bgp-peer my-cloud-router \
+      --region=us-central1 \
+      --peer-name=bgp-peer-2 \
+      --interface=bgp-tunnel-2 \
+      --peer-ip-address=169.254.1.2 \
+      --peer-asn=65002
+    ```
+  </Step>
+  <Step title="Verify tunnel status">
+    Check that both tunnels are established and BGP sessions are active.
+
+    ```bash
+    gcloud compute vpn-tunnels list --region=us-central1
+    gcloud compute routers get-status my-cloud-router --region=us-central1
+    ```
+  </Step>
+</Steps>
+
+## BGP Dynamic Routing
+
+Cloud VPN with HA VPN uses **Border Gateway Protocol (BGP)** for dynamic route exchange. BGP automatically propagates:
+
+- Your on-premises network prefixes into your VPC routing tables
+- Your VPC subnet prefixes to your on-premises router
+
+This means you do not need to manually create static routes. When you add a new subnet in your VPC or a new prefix on-premises, BGP advertises it automatically across all active tunnels.
+
+<Accordion title="BGP routing modes">
+  **Regional routing** (default) — routes learned via BGP are only applied within the Cloud Router's region. Resources in other regions must use the internet or separate VPN connections to reach on-premises.
+
+  **Global routing** — enables Cloud Routers to advertise and learn routes across all regions in the VPC. Enable this for multi-region VPCs that need a single VPN connection to reach the entire network:
+
+  ```bash
+  gcloud compute networks update my-vpc \
+    --bgp-routing-mode=global
+  ```
+</Accordion>
+
+## Verify and Troubleshoot
+
+Use these commands to check tunnel health and review BGP-learned routes:
+
+```bash
+# List all tunnels and their status
+gcloud compute vpn-tunnels describe tunnel-1 --region=us-central1
+
+# View BGP-learned routes from on-premises
+gcloud compute routers get-status my-cloud-router \
+  --region=us-central1 \
+  --format="flattened(result.bgpPeerStatus)"
+```
+
+<Warning>
+  Always use a strong, randomly generated shared secret of at least 32 characters for IPsec authentication. Reusing simple or predictable secrets is a common security misconfiguration. Generate a suitable secret with:
+
+  ```bash
+  openssl rand -base64 32
+  ```
+</Warning>
+
+## Increasing Capacity with Multiple Tunnels
+
+A single HA VPN gateway supports up to 8 tunnels. Deploy additional tunnel pairs and add corresponding BGP peers to the Cloud Router to scale throughput linearly. ECMP routing distributes traffic evenly across all equal-cost tunnels.
+
+```bash
+# Example: add a second tunnel pair for additional throughput
+gcloud compute vpn-tunnels create tunnel-3 \
+  --peer-external-gateway=peer-gw \
+  --peer-external-gateway-interface=0 \
+  --vpn-gateway=my-vpn-gw \
+  --region=us-central1 \
+  --ike-version=2 \
+  --shared-secret=my-second-shared-secret \
+  --router=my-cloud-router \
+  --interface=0
+```
+
+<Tip>
+  For workloads requiring dedicated, private connectivity with bandwidths from 50 Mbps to 200 Gbps and more predictable latency than an internet-based VPN, use **Cloud Interconnect**. Dedicated Interconnect provides a direct physical connection between your on-premises network and Google's network, while Partner Interconnect connects through a supported service provider. Both options bypass the public internet entirely and can be used alongside Cloud VPN for layered redundancy.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="VPC Networking" icon="network-wired" href="/networking/vpc">
+    Configure the VPC, subnets, and firewall rules that your VPN tunnels connect to.
+  </Card>
+  <Card title="Cloud DNS" icon="globe" href="/networking/dns">
+    Resolve private DNS names from your on-premises network using Cloud DNS forwarding.
+  </Card>
+  <Card title="Load Balancing" icon="scale-balanced" href="/networking/load-balancing">
+    Route on-premises traffic to internal load balancers within your VPC.
+  </Card>
+  <Card title="Managed Databases" icon="database" href="/storage/databases">
+    Securely access Cloud SQL and other managed databases from on-premises via VPN.
+  </Card>
+</CardGroup>

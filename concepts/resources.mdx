@@ -1,0 +1,153 @@
+---
+title: "Google Infrastructure Resource Model Explained"
+sidebarTitle: "Resources"
+description: "Learn how Google Infrastructure organizes everything you create into a structured hierarchy of projects, folders, and organizations."
+---
+
+Every object you create on Google Infrastructure — from a virtual machine to a storage bucket to a managed database — is a **resource**. Resources are the fundamental units of your infrastructure: you provision them, configure them, connect them to other resources, and eventually decommission them. Understanding how resources are structured, named, and governed gives you a clear mental model for building and operating at scale.
+
+## The Resource Hierarchy
+
+Google Infrastructure arranges resources into a four-level hierarchy. Each level inherits policies from the level above it, which lets you apply governance rules broadly or narrowly depending on your needs.
+
+<CardGroup cols={2}>
+  <Card title="Organization" icon="building" href="/concepts/identity-access">
+    The root node of your hierarchy, typically mapped to your company domain. All folders, projects, and resources live beneath it.
+  </Card>
+  <Card title="Folders" icon="folder" href="/concepts/resources">
+    Optional grouping containers within an organization. Use folders to mirror your business units, teams, or environments (e.g., `production`, `staging`).
+  </Card>
+  <Card title="Projects" icon="box" href="/concepts/resources">
+    The primary unit of resource isolation and billing. Every resource belongs to exactly one project, and API enablement is scoped to a project.
+  </Card>
+  <Card title="Resources" icon="server" href="/concepts/resources">
+    The actual infrastructure objects — VM instances, VPCs, buckets, databases, and more — that live inside a project.
+  </Card>
+</CardGroup>
+
+Policies, quotas, and IAM bindings set at a higher level automatically apply to everything beneath it. A policy attached to your `production` folder, for example, governs every project and resource inside that folder without additional configuration.
+
+## Resource Naming and IDs
+
+Every resource on Google Infrastructure has a globally unique identifier. Depending on the resource type, this identifier takes one of two forms:
+
+- **Resource name** — A human-readable string you choose at creation time, unique within its scope (e.g., `my-web-server`, `user-uploads-bucket`).
+- **Resource ID** — A system-assigned numeric or alphanumeric string guaranteed to be globally unique (e.g., `1234567890`).
+
+Resource names follow a structured URI format that encodes the full path through the hierarchy:
+
+```text
+//compute.googleapis.com/projects/my-project/zones/us-central1-a/instances/my-web-server
+```
+
+This format — called a **full resource name** — uniquely identifies the resource type, the project it belongs to, its location, and its name. You will encounter full resource names in IAM policies, audit logs, and API responses.
+
+<Note>
+  Resource names are immutable after creation for most resource types. Choose names that reflect the resource's purpose and environment (e.g., `prod-api-server-1`) rather than generic identifiers, since renaming typically requires re-creating the resource.
+</Note>
+
+## Labels and Tags
+
+Labels and tags let you attach metadata to resources so you can organize, filter, and report on them across projects and resource types.
+
+**Labels** are free-form key-value pairs you define at creation time or add later:
+
+```bash
+gcloud compute instances create my-vm \
+  --labels="env=production,team=backend,cost-center=eng-101"
+```
+
+**Tags** are string values used primarily to target firewall rules and network policies. Unlike labels, tags do not carry arbitrary values — they are applied as plain strings.
+
+<Tabs>
+  <Tab title="Adding Labels">
+    ```bash
+    gcloud compute instances add-labels my-vm \
+      --labels="env=production,team=backend" \
+      --zone=us-central1-a
+    ```
+  </Tab>
+  <Tab title="Filtering by Label">
+    ```bash
+    gcloud compute instances list \
+      --filter="labels.env=production" \
+      --project=my-project
+    ```
+  </Tab>
+  <Tab title="Adding Tags">
+    ```bash
+    gcloud compute instances add-tags my-vm \
+      --tags="http-server,https-server" \
+      --zone=us-central1-a
+    ```
+  </Tab>
+</Tabs>
+
+<Tip>
+  Establish a labeling convention before you deploy resources at scale. Common label keys include `env`, `team`, `app`, and `cost-center`. Consistent labels make cost attribution and access policy targeting significantly easier.
+</Tip>
+
+## Resource Lifecycle
+
+Resources move through a predictable set of states from the moment you create them to the moment they are permanently removed.
+
+<Steps>
+  <Step title="Create">
+    Provision the resource using the Console, CLI, or API. During creation you specify configuration, location, and any initial labels or tags. Most resources transition to a `RUNNING` or `ACTIVE` state within seconds to minutes.
+  </Step>
+  <Step title="Update">
+    Modify the resource's configuration after creation — resize a disk, change a firewall rule, or update labels. Some updates require a brief restart or re-provisioning cycle; check the documentation for each resource type.
+  </Step>
+  <Step title="Stop or Suspend">
+    For resources like VM instances, you can stop or suspend them to preserve state without paying for active compute. The resource still exists and can be restarted at any time.
+  </Step>
+  <Step title="Delete">
+    Mark the resource for deletion. Depending on the resource type, deletion may be immediate or may enter a grace period during which the resource is inactive but recoverable.
+  </Step>
+  <Step title="Recover (if applicable)">
+    Some resource types support recovery after deletion. Deleted projects, for example, enter a 30-day grace period. Deleted Cloud Storage objects with versioning enabled can be restored from a previous version.
+  </Step>
+</Steps>
+
+## Listing Resources via CLI
+
+Use the `gcloud` CLI to inspect resources across your project at any time:
+
+```bash
+gcloud compute instances list --project=my-project
+```
+
+You can scope the output further with filters and format flags:
+
+<CodeGroup>
+  ```bash List all running instances
+  gcloud compute instances list \
+    --filter="status=RUNNING" \
+    --project=my-project
+  ```
+
+  ```bash List instances in a specific zone
+  gcloud compute instances list \
+    --filter="zone=us-central1-a" \
+    --project=my-project \
+    --format="table(name,machineType,status)"
+  ```
+
+  ```bash List all storage buckets
+  gcloud storage buckets list --project=my-project
+  ```
+</CodeGroup>
+
+<Note>
+  Every project starts with default **quotas** that cap the number of resources you can create in each region — for example, CPU cores, IP addresses, and persistent disk size. If you hit a quota limit, you will receive a `QUOTA_EXCEEDED` error. You can view current quotas in the Console under **IAM & Admin → Quotas** and submit increase requests for most quota types.
+</Note>
+
+## Frequently Asked Questions
+
+<Accordion title="What happens when I delete a project?">
+  Deleting a project does not immediately destroy its resources. The project enters a **30-day grace period** during which all resources inside it are inaccessible but not yet permanently removed. During this window you can restore the project from the Console under **IAM & Admin → Manage Resources**. After 30 days, the project and all of its resources — VMs, buckets, databases, IAM bindings, and everything else — are permanently and irrecoverably deleted. Billing stops as soon as the deletion is initiated.
+</Accordion>
+
+<Accordion title="Can I move resources between projects?">
+  Some resource types support **cross-project migration**. For example, you can move Compute Engine disks and images, BigQuery datasets, and certain network resources between projects using the `gcloud` CLI or the API. Other resource types — such as Cloud SQL instances — do not support direct migration and must be exported, re-created in the target project, and then imported. Always check the documentation for the specific resource type before planning a cross-project move, and ensure the destination project has sufficient quota to accommodate the migrated resources.
+</Accordion>

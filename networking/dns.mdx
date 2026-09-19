@@ -1,0 +1,207 @@
+---
+title: "Cloud DNS: Managed Authoritative DNS on Google Infrastructure"
+sidebarTitle: "DNS"
+description: "Manage public and private DNS zones, create records, enable DNSSEC, and resolve names for VPC resources with Google Infrastructure's Cloud DNS service."
+---
+
+Cloud DNS is Google Infrastructure's scalable, fully managed authoritative DNS service. It serves millions of DNS queries per second from a globally distributed network of anycast name servers, providing low-latency resolution for your domains with 100% uptime SLA for authoritative zones. You manage all DNS data through a simple API or the `gcloud` CLI — no DNS server infrastructure to provision or maintain.
+
+## Managed Zones
+
+A managed zone is the container for DNS records that share the same DNS name suffix (your domain). Every DNS operation — creating, updating, or deleting records — targets a specific managed zone.
+
+### Create a Public Managed Zone
+
+```bash
+gcloud dns managed-zones create my-zone \
+  --dns-name=example.com. \
+  --description="My DNS zone"
+```
+
+<Note>
+  After creating a zone, Cloud DNS assigns a set of name server (NS) records. You must update your domain registrar to delegate to these name servers before Cloud DNS can serve authoritative responses for your domain. Retrieve the assigned name servers with:
+
+  ```bash
+  gcloud dns managed-zones describe my-zone --format="value(nameServers)"
+  ```
+</Note>
+
+## Managing DNS Records
+
+Cloud DNS uses a **transaction** model for record changes. You start a transaction, stage one or more additions or removals, then execute the transaction atomically.
+
+### Add an A Record
+
+```bash
+gcloud dns record-sets transaction start --zone=my-zone
+
+gcloud dns record-sets transaction add 203.0.113.10 \
+  --name=www.example.com. \
+  --type=A \
+  --ttl=300 \
+  --zone=my-zone
+
+gcloud dns record-sets transaction execute --zone=my-zone
+```
+
+### Add Multiple Record Types in One Transaction
+
+```bash
+gcloud dns record-sets transaction start --zone=my-zone
+
+# AAAA (IPv6)
+gcloud dns record-sets transaction add 2001:db8::1 \
+  --name=www.example.com. \
+  --type=AAAA \
+  --ttl=300 \
+  --zone=my-zone
+
+# MX (mail)
+gcloud dns record-sets transaction add "10 mail.example.com." \
+  --name=example.com. \
+  --type=MX \
+  --ttl=3600 \
+  --zone=my-zone
+
+# TXT (SPF / domain verification)
+gcloud dns record-sets transaction add "v=spf1 include:_spf.example.com ~all" \
+  --name=example.com. \
+  --type=TXT \
+  --ttl=3600 \
+  --zone=my-zone
+
+gcloud dns record-sets transaction execute --zone=my-zone
+```
+
+### Update or Delete a Record
+
+```bash
+# Update — remove old value, add new value in one transaction
+gcloud dns record-sets transaction start --zone=my-zone
+
+gcloud dns record-sets transaction remove 203.0.113.10 \
+  --name=www.example.com. \
+  --type=A \
+  --ttl=300 \
+  --zone=my-zone
+
+gcloud dns record-sets transaction add 203.0.113.20 \
+  --name=www.example.com. \
+  --type=A \
+  --ttl=300 \
+  --zone=my-zone
+
+gcloud dns record-sets transaction execute --zone=my-zone
+```
+
+## Supported Record Types
+
+Cloud DNS supports the full set of standard DNS record types:
+
+| Type | Purpose | Example Value |
+|---|---|---|
+| **A** | IPv4 address | `203.0.113.10` |
+| **AAAA** | IPv6 address | `2001:db8::1` |
+| **CNAME** | Canonical name alias | `www.example.com.` |
+| **MX** | Mail exchange | `10 mail.example.com.` |
+| **TXT** | Text — SPF, DKIM, domain verification | `"v=spf1 include:_spf.google.com ~all"` |
+| **NS** | Name server delegation | `ns1.googledomains.com.` |
+| **PTR** | Reverse DNS lookup | `10.113.0.203.in-addr.arpa.` |
+| **SRV** | Service location | `10 20 5060 sip.example.com.` |
+| **CAA** | Certificate Authority Authorization | `0 issue "pki.goog"` |
+
+## Private Zones
+
+A **private zone** resolves DNS names only for resources within specified VPC networks. Private zones are invisible to the public internet and do not require domain registration. Use them to create internal service discovery names such as `my-service.internal`.
+
+```bash
+# Create a private zone visible to my-vpc
+gcloud dns managed-zones create my-private-zone \
+  --dns-name=internal.example.com. \
+  --description="Internal DNS for my-vpc" \
+  --visibility=private \
+  --networks=my-vpc
+
+# Add an internal A record
+gcloud dns record-sets transaction start --zone=my-private-zone
+
+gcloud dns record-sets transaction add 10.0.0.5 \
+  --name=database.internal.example.com. \
+  --type=A \
+  --ttl=60 \
+  --zone=my-private-zone
+
+gcloud dns record-sets transaction execute --zone=my-private-zone
+```
+
+<Tip>
+  Use private zones as a lightweight service discovery mechanism. Assign a stable internal DNS name to each service (e.g., `postgres.db.internal`, `redis.cache.internal`) and update only the DNS record when an instance's IP changes — your application configuration remains static.
+</Tip>
+
+## DNS Peering
+
+DNS peering lets a consumer VPC resolve DNS names from a producer VPC's private zone without exposing the zone publicly or requiring full VPC peering.
+
+```bash
+gcloud dns managed-zones create consumer-peering-zone \
+  --dns-name=internal.example.com. \
+  --description="Peered zone from producer VPC" \
+  --visibility=private \
+  --networks=consumer-vpc \
+  --dns-peering-zone=my-private-zone
+```
+
+## DNSSEC
+
+DNS Security Extensions (DNSSEC) cryptographically sign your zone's records, allowing resolvers to verify that responses are authentic and have not been tampered with. Enabling DNSSEC protects against DNS cache poisoning and man-in-the-middle attacks.
+
+<Steps>
+  <Step title="Enable DNSSEC on your managed zone">
+    ```bash
+    gcloud dns managed-zones update my-zone \
+      --dnssec-state=on
+    ```
+  </Step>
+  <Step title="Retrieve the DS record">
+    Your registrar needs the DS (Delegation Signer) record to complete the chain of trust from the root.
+
+    ```bash
+    gcloud dns dns-keys describe $(gcloud dns dns-keys list \
+      --zone=my-zone \
+      --format="value(id)" \
+      --filter="type=KEY_SIGNING") \
+      --zone=my-zone \
+      --format="value(dsRecord)"
+    ```
+  </Step>
+  <Step title="Add the DS record at your domain registrar">
+    Log in to your registrar's management console and add the DS record output from the previous step. The process varies by registrar; consult their documentation for DNSSEC DS record submission.
+  </Step>
+</Steps>
+
+<Warning>
+  Disabling DNSSEC after it has been enabled requires removing the DS record from your registrar **before** disabling it in Cloud DNS. Reversing this order will cause DNS resolution failures for your domain until the DS record is removed and the change propagates.
+</Warning>
+
+## DNS Propagation
+
+<Note>
+  DNS changes do not take effect instantly. After executing a transaction, resolvers worldwide must expire their cached copies of the old records before serving the new values. Propagation typically completes within minutes for records with low TTLs, but can take up to **48 hours** for records with high TTLs or when downstream resolvers ignore TTLs. Lower the TTL of records you plan to change well in advance to minimize propagation delays during migrations or failovers.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Load Balancing" icon="scale-balanced" href="/networking/load-balancing">
+    Point your DNS records to a global or regional load balancer IP.
+  </Card>
+  <Card title="VPC Networking" icon="network-wired" href="/networking/vpc">
+    Use private zones for internal name resolution within your VPC.
+  </Card>
+  <Card title="Cloud VPN" icon="shield-halved" href="/networking/vpn">
+    Resolve private zone names from your on-premises network via Cloud VPN.
+  </Card>
+  <Card title="Object Storage" icon="bucket" href="/storage/object-storage">
+    Host static websites in Cloud Storage and map a custom domain via Cloud DNS.
+  </Card>
+</CardGroup>

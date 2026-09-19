@@ -1,0 +1,198 @@
+---
+title: "IAM API Reference: Policies and Service Accounts"
+sidebarTitle: "IAM"
+description: "REST API reference for managing IAM access policies and service accounts — get, set, and audit permissions programmatically."
+---
+
+The IAM API lets you manage access control for your Google Infrastructure resources without using the Console. You can retrieve and update IAM policies, enumerate who has access to a project, and create or manage service accounts for your applications — all through standard REST calls. Automating IAM through the API makes access control auditable, repeatable, and enforceable through code review.
+
+**Base URL:** `https://iam.googleapis.com/v1`
+
+<Warning>
+  `setIamPolicy` replaces the **entire** policy on a resource. If you call `setIamPolicy` with an incomplete policy, you will remove any bindings not included in your request — potentially locking out users or breaking running applications. Always call `getIamPolicy` first, modify the returned policy object, and then pass the full modified policy to `setIamPolicy`.
+</Warning>
+
+---
+
+## Get a Project's IAM Policy
+
+Retrieve the current IAM policy for a project. The policy contains all role bindings — which members have which roles.
+
+```http
+POST https://cloudresourcemanager.googleapis.com/v1/projects/my-project:getIamPolicy
+Authorization: Bearer ACCESS_TOKEN
+Content-Type: application/json
+
+{}
+```
+
+### Response
+
+```json
+{
+  "version": 1,
+  "bindings": [
+    {
+      "role": "roles/owner",
+      "members": [
+        "user:admin@example.com"
+      ]
+    },
+    {
+      "role": "roles/compute.instanceAdmin.v1",
+      "members": [
+        "serviceAccount:api-backend-prod@my-project.iam.gserviceaccount.com",
+        "user:developer@example.com"
+      ]
+    }
+  ],
+  "etag": "BwXyZ123abc="
+}
+```
+
+<ResponseField name="version" type="integer">
+  Policy format version. Version `1` supports basic roles and predefined roles. Version `3` is required for policies that include conditional role bindings.
+</ResponseField>
+
+<ResponseField name="bindings" type="array">
+  List of role bindings. Each binding maps a `role` (a string like `roles/compute.viewer`) to an array of `members`. Members are identified by type prefix: `user:`, `serviceAccount:`, `group:`, or `domain:`.
+</ResponseField>
+
+<ResponseField name="etag" type="string">
+  Fingerprint of the current policy. Include this value unchanged in your `setIamPolicy` call to prevent concurrent modification conflicts. If the policy has changed since you retrieved it, the API rejects your update with a `409 Conflict`.
+</ResponseField>
+
+---
+
+## Set a Project's IAM Policy
+
+Replace the IAM policy on a project. Include the `etag` from your prior `getIamPolicy` call to prevent race conditions.
+
+```http
+POST https://cloudresourcemanager.googleapis.com/v1/projects/my-project:setIamPolicy
+Authorization: Bearer ACCESS_TOKEN
+Content-Type: application/json
+```
+
+### Example Request Body
+
+```json
+{
+  "policy": {
+    "version": 1,
+    "bindings": [
+      {
+        "role": "roles/owner",
+        "members": [
+          "user:admin@example.com"
+        ]
+      },
+      {
+        "role": "roles/compute.instanceAdmin.v1",
+        "members": [
+          "serviceAccount:api-backend-prod@my-project.iam.gserviceaccount.com",
+          "user:developer@example.com",
+          "user:newengineer@example.com"
+        ]
+      }
+    ],
+    "etag": "BwXyZ123abc="
+  }
+}
+```
+
+### Response
+
+Returns the updated policy object in the same format as `getIamPolicy`.
+
+---
+
+## List Service Accounts
+
+Retrieve all service accounts in a project.
+
+```http
+GET https://iam.googleapis.com/v1/projects/my-project/serviceAccounts
+Authorization: Bearer ACCESS_TOKEN
+```
+
+### Response
+
+```json
+{
+  "accounts": [
+    {
+      "name": "projects/my-project/serviceAccounts/api-backend-prod@my-project.iam.gserviceaccount.com",
+      "projectId": "my-project",
+      "uniqueId": "112233445566778899",
+      "email": "api-backend-prod@my-project.iam.gserviceaccount.com",
+      "displayName": "API Backend Production",
+      "oauth2ClientId": "112233445566778899"
+    }
+  ],
+  "nextPageToken": ""
+}
+```
+
+---
+
+## Create a Service Account
+
+Create a new service account in a project. After creating the service account, grant it IAM roles using `setIamPolicy` or the `gcloud` CLI.
+
+```http
+POST https://iam.googleapis.com/v1/projects/my-project/serviceAccounts
+Authorization: Bearer ACCESS_TOKEN
+Content-Type: application/json
+```
+
+### Request Body Parameters
+
+<ParamField body="accountId" type="string" required>
+  The ID portion of the service account email address. The full email will be `{accountId}@{project}.iam.gserviceaccount.com`. Must be 6–30 characters, start with a lowercase letter, and contain only lowercase letters, numbers, and hyphens.
+</ParamField>
+
+<ParamField body="serviceAccount.displayName" type="string">
+  Human-readable display name for the service account. Use a descriptive name that identifies the workload or team responsible for this account, such as `"Data Pipeline Worker"` or `"Frontend API Client"`.
+</ParamField>
+
+### Example Request Body
+
+```json
+{
+  "accountId": "data-pipeline-worker",
+  "serviceAccount": {
+    "displayName": "Data Pipeline Worker"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "name": "projects/my-project/serviceAccounts/data-pipeline-worker@my-project.iam.gserviceaccount.com",
+  "projectId": "my-project",
+  "uniqueId": "998877665544332211",
+  "email": "data-pipeline-worker@my-project.iam.gserviceaccount.com",
+  "displayName": "Data Pipeline Worker",
+  "oauth2ClientId": "998877665544332211"
+}
+```
+
+---
+
+## Common IAM Roles Reference
+
+| Role | Description |
+|---|---|
+| `roles/owner` | Full access to all resources in the project, including IAM management |
+| `roles/editor` | Read and write access to most resources, excluding IAM |
+| `roles/viewer` | Read-only access to all resources |
+| `roles/compute.instanceAdmin.v1` | Create, modify, and delete Compute Engine VM instances |
+| `roles/compute.networkAdmin` | Manage VPC networks, subnets, and firewall rules |
+| `roles/storage.objectAdmin` | Full control over Cloud Storage objects |
+| `roles/storage.objectViewer` | Read-only access to Cloud Storage objects |
+| `roles/iam.serviceAccountUser` | Allows running operations as a service account |
+
+Grant the most restrictive role that satisfies your workload's requirements. Avoid granting `roles/owner` or `roles/editor` to service accounts — use purpose-specific predefined roles or create custom roles instead.

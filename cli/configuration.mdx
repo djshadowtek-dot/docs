@@ -1,0 +1,105 @@
+---
+title: "Configuring the gcloud CLI: Projects and Profiles"
+sidebarTitle: "Configuration"
+description: "Manage multiple Google Infrastructure projects and accounts using named configurations, properties, and authentication commands in the gcloud CLI."
+---
+
+After installing `gcloud`, you configure it to point at the right project and authenticate with the right identity. For teams that juggle multiple environments — development, staging, and production — named configurations let you switch contexts instantly without re-authenticating or overwriting your settings.
+
+## Named configurations
+
+A named configuration is a saved set of `gcloud` properties (project, account, compute zone, and more). You can create as many as you need and activate any one of them at will.
+
+```bash
+gcloud config configurations create prod
+gcloud config configurations create dev
+gcloud config configurations activate prod
+```
+
+To see all configurations and which one is currently active, run:
+
+```bash
+gcloud config configurations list
+```
+
+<Accordion title="Where are configuration files stored?">
+  All `gcloud` configuration files live under `~/.config/gcloud/` on macOS and Linux, and under `%APPDATA%\gcloud\` on Windows.
+
+  Each named configuration is stored as a properties file at:
+  ```
+  ~/.config/gcloud/configurations/config_<NAME>
+  ```
+
+  The active configuration is tracked in:
+  ```
+  ~/.config/gcloud/active_config
+  ```
+
+  You can inspect these files directly, but it is safer to modify them through `gcloud config` commands to avoid syntax errors.
+</Accordion>
+
+## Setting properties
+
+Use `gcloud config set` to assign values to properties within the currently active configuration. Properties are namespaced by component — `core`, `compute`, `container`, and so on.
+
+```bash
+gcloud config set project my-project
+gcloud config set compute/zone us-central1-a
+gcloud config set compute/region us-central1
+```
+
+To remove a property and revert to the default, use `gcloud config unset`:
+
+```bash
+gcloud config unset compute/zone
+```
+
+## Authentication
+
+`gcloud` supports three authentication flows depending on how you are running commands.
+
+```bash
+gcloud auth login                        # browser-based login
+gcloud auth activate-service-account \
+  --key-file=service-account.json        # service account auth
+gcloud auth application-default login    # set ADC
+```
+
+| Command | Use case |
+|---|---|
+| `gcloud auth login` | Interactive development on your local machine |
+| `gcloud auth activate-service-account` | CI/CD pipelines and automated scripts |
+| `gcloud auth application-default login` | Client libraries that use Application Default Credentials |
+
+<Warning>
+  Never commit service account key files (`service-account.json`) to source control. Store them in a secrets manager or use Workload Identity Federation to eliminate key files entirely in production environments.
+</Warning>
+
+## Listing and switching accounts and projects
+
+Inspect your current configuration and explore available projects without leaving the terminal.
+
+```bash
+gcloud config list
+gcloud projects list
+gcloud config set project another-project
+```
+
+`gcloud config list` prints all properties set in the active configuration. `gcloud projects list` enumerates every project your authenticated account can access.
+
+To switch to a different named configuration entirely:
+
+```bash
+gcloud config configurations activate dev
+```
+
+<Tip>
+  Set the `CLOUDSDK_CORE_PROJECT` environment variable to override the active project for a single terminal session without modifying any configuration file:
+
+  ```bash
+  export CLOUDSDK_CORE_PROJECT=my-temp-project
+  gcloud compute instances list
+  ```
+
+  This is particularly useful in shell scripts where you want to target a specific project without changing the global configuration.
+</Tip>

@@ -1,0 +1,196 @@
+---
+title: "Identity and Access Management on Google Infrastructure"
+sidebarTitle: "Identity & Access"
+description: "Learn how IAM principals, roles, and policies let you control who can do what on every resource in your Google Infrastructure environment."
+---
+
+Controlling access to your infrastructure is as important as building it. Google Infrastructure uses **Identity and Access Management (IAM)** to let you define exactly who can take which actions on which resources. Whether you are granting a developer permission to restart a VM or authorizing an application to write to a storage bucket, IAM gives you fine-grained, auditable control at every level of the resource hierarchy.
+
+## What IAM Is
+
+IAM answers three questions for every action taken against a Google Infrastructure resource:
+
+- **Who** is making the request? (identity, called a *principal*)
+- **What** are they allowed to do? (permissions, grouped into *roles*)
+- **On which resource** does the permission apply? (the *resource* the policy is attached to)
+
+These three elements — principal, role, and resource — come together in an **IAM policy** that you attach to a resource. When a request arrives, Google Infrastructure evaluates all policies in the hierarchy and either grants or denies the action.
+
+## Principals
+
+A **principal** is any identity that can be granted a role. Google Infrastructure supports four principal types:
+
+<CardGroup cols={2}>
+  <Card title="Google Accounts" icon="user" href="/concepts/identity-access">
+    Individual user identities tied to a Google account (e.g., `alice@example.com`). Used for human operators and developers.
+  </Card>
+  <Card title="Service Accounts" icon="robot" href="/concepts/identity-access">
+    Machine identities used by applications, VMs, and automated pipelines to authenticate without human credentials.
+  </Card>
+  <Card title="Google Groups" icon="users" href="/concepts/identity-access">
+    Collections of Google accounts and service accounts. Granting a role to a group applies it to all members, simplifying access management at scale.
+  </Card>
+  <Card title="Domains" icon="globe" href="/concepts/identity-access">
+    All accounts in a Google Workspace or Cloud Identity domain (e.g., `example.com`). Useful for broad, organization-wide grants.
+  </Card>
+</CardGroup>
+
+## Roles
+
+Roles are named collections of permissions. Rather than granting individual permissions directly, you grant a role — and the role carries the permissions. Google Infrastructure provides three categories of roles:
+
+<Tabs>
+  <Tab title="Primitive Roles">
+    Primitive roles are coarse-grained and apply across all services in a project. Use them sparingly:
+
+    | Role | Description |
+    |------|-------------|
+    | `roles/owner` | Full control of all resources, including IAM policy management and billing |
+    | `roles/editor` | Read and write access to most resources; cannot manage IAM |
+    | `roles/viewer` | Read-only access to all resources |
+
+    <Warning>
+      Never grant `roles/owner` or `roles/editor` to end users at the project level. These roles provide far more access than most users need and violate the principle of least privilege. Use predefined or custom roles scoped to the specific resources and operations a user requires.
+    </Warning>
+  </Tab>
+  <Tab title="Predefined Roles">
+    Predefined roles are curated by Google for specific services and job functions. They follow the pattern `roles/<service>.<role>`:
+
+    ```text
+    roles/compute.instanceAdmin      — Create, delete, and manage VM instances
+    roles/compute.networkViewer      — Read-only access to network resources
+    roles/storage.objectCreator      — Upload objects to Cloud Storage
+    roles/bigquery.dataViewer        — Read BigQuery datasets and tables
+    roles/logging.viewer             — Read Cloud Logging log entries
+    ```
+
+    Browse the full catalog in the **IAM & Admin → Roles** section of the Console or with:
+
+    ```bash
+    gcloud iam roles list --filter="name:roles/compute"
+    ```
+  </Tab>
+  <Tab title="Custom Roles">
+    Custom roles let you assemble exactly the permissions you need — no more, no less. Define them at the organization or project level:
+
+    ```bash
+    gcloud iam roles create deployPipelineRole \
+      --project=my-project \
+      --title="Deploy Pipeline Role" \
+      --description="Allows CI/CD pipeline to deploy to GKE and read secrets" \
+      --permissions="container.clusters.get,container.clusters.list,secretmanager.versions.access" \
+      --stage=GA
+    ```
+
+    Custom roles must be maintained — when Google adds new permissions to a service, your custom role does not automatically include them.
+  </Tab>
+</Tabs>
+
+## IAM Policies
+
+An IAM policy is a list of **bindings**, each pairing one or more principals with a single role. You attach a policy to a resource — the binding takes effect for that resource and, by inheritance, all resources beneath it in the hierarchy.
+
+```bash
+gcloud projects add-iam-policy-binding my-project \
+  --member="user:alice@example.com" \
+  --role="roles/compute.instanceAdmin"
+```
+
+To view all current bindings on a project:
+
+```bash
+gcloud projects get-iam-policy my-project
+```
+
+To remove a binding:
+
+```bash
+gcloud projects remove-iam-policy-binding my-project \
+  --member="user:alice@example.com" \
+  --role="roles/compute.instanceAdmin"
+```
+
+<Info>
+  IAM policy changes propagate globally within about 60 seconds. During propagation, some requests may still be evaluated against the old policy. Design your access changes with this eventual consistency in mind — for example, add permissions before removing them during a role transition.
+</Info>
+
+## Service Accounts
+
+Service accounts are machine identities used by applications running on (or calling into) Google Infrastructure. Instead of embedding a user's credentials in your application, you assign the application a service account and grant that service account only the roles it needs.
+
+<Steps>
+  <Step title="Create a service account">
+    ```bash
+    gcloud iam service-accounts create my-app-sa \
+      --display-name="My Application Service Account" \
+      --project=my-project
+    ```
+  </Step>
+  <Step title="Grant roles to the service account">
+    ```bash
+    gcloud projects add-iam-policy-binding my-project \
+      --member="serviceAccount:my-app-sa@my-project.iam.gserviceaccount.com" \
+      --role="roles/storage.objectCreator"
+    ```
+  </Step>
+  <Step title="Attach the service account to a resource">
+    Attach the service account to a VM so that code running on the VM automatically uses it for all Google API calls:
+
+    ```bash
+    gcloud compute instances create my-vm \
+      --service-account=my-app-sa@my-project.iam.gserviceaccount.com \
+      --scopes=https://www.googleapis.com/auth/cloud-platform \
+      --zone=us-central1-a
+    ```
+  </Step>
+  <Step title="Use Application Default Credentials in your code">
+    Client libraries pick up the attached service account automatically — no credential files needed:
+
+    ```python
+    from google.cloud import storage
+
+    # Authenticates using the VM's attached service account
+    client = storage.Client()
+    bucket = client.bucket("my-bucket")
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+  Prefer **attaching a service account to a resource** (like a VM or Cloud Run service) over downloading a service account key file. Attached service accounts rotate their credentials automatically. Key files, by contrast, are long-lived secrets that can be leaked and are harder to revoke quickly.
+</Tip>
+
+## Principle of Least Privilege
+
+Grant each principal only the permissions it needs to perform its specific job — nothing more. Apply this principle at every level:
+
+- Prefer **predefined roles** for specific services over the broad primitive roles.
+- Scope bindings to the **lowest level** in the hierarchy where they make sense (e.g., bind at the resource level, not the organization level, when possible).
+- Audit access regularly using **Policy Analyzer** and **IAM Recommender**, which identify over-provisioned principals and suggest tighter roles.
+- Use **Conditions** to restrict bindings by time, resource attributes, or request origin.
+
+```bash
+# Add a binding that expires after a fixed date (time-bound access)
+gcloud projects add-iam-policy-binding my-project \
+  --member="user:contractor@example.com" \
+  --role="roles/compute.viewer" \
+  --condition="expression=request.time < timestamp('2025-12-31T00:00:00Z'),title=Temporary access"
+```
+
+## Frequently Asked Questions
+
+<Accordion title="Can a service account act as a user, and can a user impersonate a service account?">
+  Yes to both, with proper authorization. A user with the `roles/iam.serviceAccountTokenCreator` role can generate short-lived tokens that impersonate a service account — useful for testing the permissions your application will have. Conversely, a service account can be granted roles that allow it to call APIs on behalf of users when using domain-wide delegation. Both mechanisms should be used carefully and audited regularly, as they can significantly expand the effective permissions of a principal.
+</Accordion>
+
+<Accordion title="How often should I rotate service account keys?">
+  If you are using **attached service accounts** (the recommended approach), there are no keys to rotate — credentials are managed automatically by Google Infrastructure and refreshed every hour. If you have legacy workloads that require downloaded key files, rotate them at least every 90 days and immediately upon any suspected compromise. Use **Secret Manager** to store and distribute keys rather than checking them into source control or embedding them in container images. You can audit key age with:
+
+  ```bash
+  gcloud iam service-accounts keys list \
+    --iam-account=my-app-sa@my-project.iam.gserviceaccount.com \
+    --project=my-project
+  ```
+
+  Consider migrating workloads that rely on key files to **Workload Identity Federation**, which allows external identities (e.g., GitHub Actions, AWS roles) to authenticate to Google Infrastructure without any key files.
+</Accordion>

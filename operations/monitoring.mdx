@@ -1,0 +1,107 @@
+---
+title: "Cloud Monitoring: Visibility Into Your Infrastructure"
+sidebarTitle: "Monitoring"
+description: "Use Cloud Monitoring to collect metrics, build dashboards, configure uptime checks, and maintain visibility into the health of your Google Infrastructure resources."
+---
+
+Cloud Monitoring gives you comprehensive visibility into the performance, availability, and health of every resource running on Google Infrastructure. Metrics from over 1,500 built-in Google Cloud services stream into Monitoring automatically — no agents or configuration needed for most workloads. You can visualize these metrics on custom dashboards, set alerting policies to get notified when something goes wrong, and query raw metric data programmatically to drive automation. This guide walks you through the core capabilities and how to use them effectively.
+
+## Metrics Collection
+
+Cloud Monitoring automatically collects metrics from all major Google Cloud services as soon as you enable them in your project. These include metrics for Compute Engine instances, Cloud SQL databases, Cloud Storage buckets, Kubernetes clusters, and hundreds of other services. You do not need to install monitoring agents to get started — Google-managed metrics begin flowing within seconds of resource creation.
+
+For workloads that need metrics beyond what Google provides, you can emit **custom metrics** via the Cloud Monitoring API or any OpenTelemetry-compatible instrumentation library.
+
+```bash
+# List available metric descriptors for Compute Engine
+gcloud monitoring metric-descriptors list \
+  --filter="metric.type:compute.googleapis.com"
+```
+
+<Note>
+  Standard metrics are retained for **6 weeks** by default. If your organization requires longer retention for trend analysis, compliance, or capacity planning, configure a **Metrics Scope** workspace and enable extended retention, which stores metrics for up to **24 months**. Extended retention is configured at the workspace level and applies to all projects within the scope.
+</Note>
+
+## Dashboards
+
+Dashboards let you bring together metrics from multiple services and resources into a single, shareable view. You can build dashboards interactively in the Cloud Console or define them as JSON configuration files and deploy them through the CLI or Terraform for reproducible, version-controlled observability infrastructure.
+
+```bash
+gcloud monitoring dashboards create --config-from-file=dashboard.json
+```
+
+To list existing dashboards and retrieve their IDs:
+
+```bash
+gcloud monitoring dashboards list
+```
+
+To update an existing dashboard from a modified configuration file:
+
+```bash
+gcloud monitoring dashboards update DASHBOARD_ID \
+  --config-from-file=dashboard.json
+```
+
+<Tip>
+  Use **Monitoring Query Language (MQL)** when building dashboard charts that require complex transformations, cross-metric arithmetic, or advanced aggregation. MQL gives you far more expressive power than the standard metric picker — for example, you can compute the ratio of error requests to total requests, apply moving-window averages, or align metrics with different sampling rates onto a common time axis. Access the MQL editor by selecting **MQL** in the chart query builder.
+</Tip>
+
+## Creating a CPU Utilization Dashboard
+
+Follow these steps to build a dashboard that tracks CPU utilization across your Compute Engine fleet.
+
+<Steps>
+  <Step title="Navigate to Dashboards">
+    Open the Cloud Console and go to **Monitoring → Dashboards**. Click **Create Dashboard** and give it a descriptive name such as "Compute Engine — CPU Utilization".
+  </Step>
+  <Step title="Add a chart and select the metric">
+    Click **Add Widget → Line Chart**. In the metric selector, search for and select:
+
+    ```
+    compute.googleapis.com/instance/cpu/utilization
+    ```
+
+    This metric reports the fraction of the allocated CPU used by the instance, sampled every 60 seconds.
+  </Step>
+  <Step title="Filter by instance or project">
+    Add filters to narrow the chart to the resources you care about. Click **Add Filter** and choose from available labels such as `instance_name`, `zone`, or `project_id`. For example, filter by `instance_name = web-server-*` to scope the chart to your web tier only.
+  </Step>
+  <Step title="Set the time range and refresh interval">
+    Use the time range picker in the top-right corner to set the default time window for the dashboard — a 6-hour window works well for operational monitoring. Enable **Auto-refresh** at a 1-minute interval so the dashboard stays current during an incident.
+  </Step>
+  <Step title="Save the dashboard">
+    Click **Save** in the top-right corner. The dashboard is now accessible to anyone with the **Monitoring Viewer** role on your project, and can be linked directly from runbooks, incident tickets, or your internal wiki.
+  </Step>
+</Steps>
+
+## Uptime Checks
+
+Uptime checks let you verify that your public or internal endpoints are reachable and returning expected responses. Cloud Monitoring probes your endpoint from multiple geographic regions at a configurable interval and reports availability over time.
+
+```bash
+gcloud monitoring uptime-checks create http my-uptime-check \
+  --display-name="Production API Health" \
+  --hostname=api.example.com \
+  --path=/health \
+  --port=443 \
+  --use-ssl \
+  --check-interval=60s
+```
+
+Uptime check results appear on the **Uptime** tab in Cloud Monitoring, and you can attach an alerting policy to the check so that you are notified immediately when the check begins failing.
+
+<CardGroup cols={2}>
+  <Card title="Metrics Explorer" icon="chart-line" href="https://console.cloud.google.com/monitoring/metrics-explorer">
+    Interactively query and chart any metric in your project without building a full dashboard.
+  </Card>
+  <Card title="Dashboards" icon="table-columns" href="https://console.cloud.google.com/monitoring/dashboards">
+    Create and manage custom dashboards for your teams, services, and infrastructure layers.
+  </Card>
+  <Card title="Uptime Checks" icon="signal" href="https://console.cloud.google.com/monitoring/uptime">
+    Configure external probes to verify service availability from multiple global regions.
+  </Card>
+  <Card title="Alerting" icon="bell" href="https://console.cloud.google.com/monitoring/alerting">
+    Define threshold and absence conditions that trigger notifications to your on-call team.
+  </Card>
+</CardGroup>

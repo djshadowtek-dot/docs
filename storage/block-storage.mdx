@@ -1,0 +1,177 @@
+---
+title: "Persistent Disks: Block Storage on Google Infrastructure"
+sidebarTitle: "Block Storage"
+description: "Attach durable, high-performance block storage volumes to your VM instances with Google Infrastructure's Persistent Disk service."
+---
+
+Persistent Disks are Google Infrastructure's durable, network-attached block storage volumes for Compute Engine VM instances. Unlike ephemeral local storage, Persistent Disks survive VM restarts and deletions, are automatically encrypted at rest, and support live resizing without downtime. Choose from four disk types to match your workload's performance and cost requirements.
+
+## Disk Types
+
+<CardGroup cols={2}>
+  <Card title="Standard (HDD)" icon="hard-drive" href="#disk-types">
+    Sequential read/write throughput optimized for batch workloads. Lowest cost per GB. Suited for data warehousing, log processing, and cold storage on VMs.
+  </Card>
+  <Card title="Balanced (SSD)" icon="gauge" href="#disk-types">
+    Balanced price-performance ratio using solid-state storage. A cost-effective SSD option for most general-purpose workloads, including boot disks.
+  </Card>
+  <Card title="SSD Persistent Disk" icon="bolt" href="#disk-types">
+    Higher IOPS and lower latency than Balanced. Best for latency-sensitive applications, relational databases, and enterprise workloads that demand consistent performance.
+  </Card>
+  <Card title="Extreme SSD" icon="rocket" href="#disk-types">
+    Highest performance tier with user-configurable IOPS. Designed for workloads requiring maximum throughput — large databases, high-frequency trading, and real-time analytics.
+  </Card>
+</CardGroup>
+
+| Disk Type | Max IOPS (read) | Max Throughput | Relative Cost |
+|---|---|---|---|
+| Standard HDD | 3,000 | 180 MB/s | $ |
+| Balanced SSD | 80,000 | 1,200 MB/s | $$ |
+| SSD | 100,000 | 1,200 MB/s | $$$ |
+| Extreme SSD | 350,000 | 2,400 MB/s | $$$$ |
+
+<Tip>
+  For demanding database workloads — such as large PostgreSQL, MySQL, or SAP HANA deployments — consider **Hyperdisk Extreme**, which decouples IOPS and throughput provisioning from disk capacity. This lets you right-size performance independently of storage volume, often reducing costs while exceeding the limits of standard Extreme SSD.
+</Tip>
+
+## Zonal vs. Regional Disks
+
+**Zonal Persistent Disks** are the default. They reside in a single zone and provide excellent performance for most workloads. If that zone becomes unavailable, the disk is also unavailable until the zone recovers.
+
+**Regional Persistent Disks** synchronously replicate data across two zones in the same region. They are designed for stateful workloads requiring high availability — such as databases with active-active or active-passive failover configurations. Regional disks add a small write latency overhead due to synchronous replication.
+
+<Info>
+  Regional Persistent Disks can be force-attached to a VM in the secondary zone in the event of a zonal outage, enabling rapid failover with minimal manual intervention.
+</Info>
+
+## Create and Attach a Disk
+
+The following commands create a 100 GB SSD disk, attach it to a running VM, and mount it inside the instance.
+
+<Steps>
+  <Step title="Create the disk">
+    Specify the size, type, and zone. The disk is immediately available once provisioned.
+
+    ```bash
+    gcloud compute disks create my-disk \
+      --size=100GB \
+      --type=pd-ssd \
+      --zone=us-central1-a
+    ```
+  </Step>
+  <Step title="Attach the disk to a VM instance">
+    Attaching a disk to a running instance does not require a reboot.
+
+    ```bash
+    gcloud compute instances attach-disk my-instance \
+      --disk=my-disk \
+      --zone=us-central1-a
+    ```
+  </Step>
+  <Step title="Format and mount the disk (inside the VM)">
+    SSH into your instance, then format and mount the new device. The device name is typically `/dev/sdb` for the second attached disk.
+
+    ```bash
+    # Format with ext4
+    sudo mkfs.ext4 -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard \
+      /dev/sdb
+
+    # Create a mount point and mount
+    sudo mkdir -p /mnt/disks/my-disk
+    sudo mount -o discard,defaults /dev/sdb /mnt/disks/my-disk
+
+    # Make the mount persistent across reboots
+    echo UUID=$(sudo blkid -s UUID -o value /dev/sdb) \
+      /mnt/disks/my-disk ext4 discard,defaults,nofail 0 2 \
+      | sudo tee -a /etc/fstab
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  If you plan to delete a VM but want to retain its attached disk, explicitly **detach the disk before deleting the instance**, or set the disk's auto-delete flag to `false`. By default, boot disks are configured to auto-delete when the VM is deleted — this action is irreversible.
+
+  ```bash
+  gcloud compute instances set-disk-auto-delete my-instance \
+    --no-auto-delete \
+    --disk=my-disk \
+    --zone=us-central1-a
+  ```
+</Warning>
+
+## Snapshots
+
+Snapshots are incremental, point-in-time backups of a Persistent Disk. The first snapshot captures the full disk; subsequent snapshots store only changed blocks, minimizing storage costs. Snapshots are stored in Cloud Storage and can be used to restore a disk or create a new disk in a different zone or region.
+
+```bash
+gcloud compute disks snapshot my-disk \
+  --zone=us-central1-a \
+  --snapshot-names=my-snapshot
+```
+
+Restore a disk from a snapshot:
+
+```bash
+gcloud compute disks create my-restored-disk \
+  --source-snapshot=my-snapshot \
+  --zone=us-central1-b \
+  --type=pd-ssd
+```
+
+### Scheduled Snapshots
+
+Automate snapshot creation with a snapshot schedule policy:
+
+```bash
+# Create a daily snapshot schedule with a 7-day retention window
+gcloud compute resource-policies create snapshot-schedule daily-backup \
+  --region=us-central1 \
+  --max-retention-days=7 \
+  --on-source-disk-delete=keep-auto-snapshots \
+  --daily-schedule \
+  --start-time=04:00
+
+# Attach the policy to your disk
+gcloud compute disks add-resource-policies my-disk \
+  --resource-policies=daily-backup \
+  --zone=us-central1-a
+```
+
+<Note>
+  Snapshots are globally available — you can use a snapshot taken from a disk in `us-central1-a` to create a new disk in `europe-west1`. This makes snapshots a convenient mechanism for cross-region disk migration and disaster recovery.
+</Note>
+
+## Resize a Disk
+
+You can increase the size of a Persistent Disk without downtime. After resizing the disk resource, you must also resize the file system inside the VM.
+
+```bash
+# Resize the disk resource
+gcloud compute disks resize my-disk \
+  --size=200GB \
+  --zone=us-central1-a
+
+# Inside the VM, resize the filesystem (ext4 example)
+sudo resize2fs /dev/sdb
+```
+
+<Warning>
+  Disk resizes are **permanent and irreversible** — you cannot shrink a Persistent Disk after expanding it. Plan your capacity carefully, or rely on snapshots to roll back to a known state before resizing.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Object Storage" icon="bucket" href="/storage/object-storage">
+    Store unstructured data and static assets with Cloud Storage.
+  </Card>
+  <Card title="Managed Databases" icon="database" href="/storage/databases">
+    Use fully managed relational and NoSQL databases without managing disks directly.
+  </Card>
+  <Card title="Compute Instances" icon="server" href="/compute/instances">
+    Learn how to create and configure VM instances that use Persistent Disks.
+  </Card>
+  <Card title="VPC Networking" icon="network-wired" href="/networking/vpc">
+    Isolate and secure your storage resources within a private VPC.
+  </Card>
+</CardGroup>

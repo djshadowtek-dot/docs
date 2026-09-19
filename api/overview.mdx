@@ -1,0 +1,120 @@
+---
+title: "Google Infrastructure REST API Overview"
+sidebarTitle: "Overview"
+description: "Learn how the Google Infrastructure REST API works, including base URLs, request and response formats, operations, and pagination."
+---
+
+The Google Infrastructure REST API lets you manage all resources programmatically — create and delete VM instances, configure networks, control access policies, and more — using standard HTTP methods and JSON payloads. Every resource type is reachable through a consistent URL structure, making it straightforward to automate infrastructure workflows, integrate with CI/CD pipelines, or build internal tooling on top of the platform.
+
+## Base URLs
+
+Each product surface exposes its own versioned base URL. Use the appropriate base for the service you are calling.
+
+| Service | Base URL |
+|---|---|
+| Compute | `https://compute.googleapis.com/v1` |
+| Storage | `https://storage.googleapis.com/v1` |
+| IAM | `https://iam.googleapis.com/v1` |
+| Cloud Resource Manager | `https://cloudresourcemanager.googleapis.com/v1` |
+
+## Request Format
+
+All API requests use standard HTTP methods and expect JSON-encoded bodies where a payload is required. Set the `Content-Type: application/json` header on every request that includes a body.
+
+| Method | Usage |
+|---|---|
+| `GET` | Retrieve a resource or list resources |
+| `POST` | Create a resource or trigger an action |
+| `PUT` | Replace a resource entirely |
+| `PATCH` | Partially update a resource |
+| `DELETE` | Delete a resource |
+
+Every request must include a valid `Authorization` header. See the [Authentication guide](/api/authentication) for details on obtaining and using access tokens.
+
+## Response Format
+
+All responses return JSON. Successful responses follow a consistent envelope structure that includes a `kind` discriminator identifying the resource type, along with the resource fields themselves.
+
+```json
+{
+  "kind": "compute#instance",
+  "id": "1234567890",
+  "name": "my-instance",
+  "status": "RUNNING"
+}
+```
+
+List responses wrap results in an `items` array and include pagination metadata:
+
+```json
+{
+  "kind": "compute#instanceList",
+  "nextPageToken": "Cg8KBm15LXZt...",
+  "items": [
+    {
+      "id": "1234567890",
+      "name": "my-instance",
+      "status": "RUNNING"
+    }
+  ]
+}
+```
+
+## Long-Running Operations
+
+Mutating operations — creating, updating, or deleting resources — often take several seconds to complete. When you issue such a request, the API immediately returns an `Operation` object rather than waiting for the action to finish.
+
+```json
+{
+  "kind": "compute#operation",
+  "id": "9876543210",
+  "name": "operation-1234567890",
+  "operationType": "insert",
+  "status": "RUNNING",
+  "targetLink": "https://compute.googleapis.com/v1/projects/my-project/zones/us-central1-a/instances/my-instance"
+}
+```
+
+Poll the operation's `status` field until it reads `DONE`. A completed operation may include an `error` field — always check for it before assuming success.
+
+```bash
+GET https://compute.googleapis.com/v1/projects/{project}/zones/{zone}/operations/{operation}
+Authorization: Bearer ACCESS_TOKEN
+```
+
+<Note>
+  Use the `fields` query parameter to limit which fields the API returns. For example, `?fields=items(id,name,status)` reduces response size and speeds up large list calls — particularly useful when polling operations at high frequency.
+</Note>
+
+## Pagination
+
+List endpoints return at most 500 items per page by default. When more results exist, the response includes a `nextPageToken` string. Pass this token as the `pageToken` query parameter in your next request to retrieve the following page.
+
+```bash
+# First page
+GET https://compute.googleapis.com/v1/projects/my-project/zones/us-central1-a/instances
+
+# Subsequent pages
+GET https://compute.googleapis.com/v1/projects/my-project/zones/us-central1-a/instances?pageToken=Cg8KBm15LXZt...
+```
+
+Continue until the response no longer contains a `nextPageToken` field — that signals the final page.
+
+You can also control page size with the `maxResults` query parameter (maximum value: `500`).
+
+## Explore the API
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/api/authentication">
+    Learn how to obtain OAuth 2.0 tokens and authenticate API requests securely in both development and production.
+  </Card>
+  <Card title="Rate Limits" icon="gauge-high" href="/api/rate-limits">
+    Understand per-project quotas, how to check your usage, and how to handle 429 responses gracefully.
+  </Card>
+  <Card title="Compute API" icon="server" href="/api/compute">
+    Manage VM instances, disks, and machine types through the Compute REST API.
+  </Card>
+  <Card title="Storage API" icon="database" href="/api/storage">
+    Create buckets, upload objects, and manage Cloud Storage resources programmatically.
+  </Card>
+</CardGroup>

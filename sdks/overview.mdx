@@ -1,0 +1,91 @@
+---
+title: "Google Infrastructure SDK Overview: Client Libraries"
+sidebarTitle: "Overview"
+description: "Choose the right Google Infrastructure client library for your language. Official SDKs handle auth, retries, and pagination so you can focus on your application."
+---
+
+Google Infrastructure provides official client libraries for all major programming languages, built on top of the underlying REST and gRPC APIs. Rather than constructing raw HTTP requests and handling responses manually, you use idiomatic code that feels natural in each language. Every library is tested, versioned, and maintained by Google.
+
+## Why use an SDK instead of raw REST?
+
+Working directly against the REST API is possible, but the client libraries handle substantial undifferentiated heavy lifting on your behalf:
+
+| Concern | Raw REST | Client Library |
+|---|---|---|
+| Authentication | Manual token refresh | Automatic via ADC |
+| Retries & backoff | You implement | Built-in with jitter |
+| Pagination | Manual `pageToken` loop | `list_all` / iterator helpers |
+| Type safety | None — raw JSON | Typed request/response objects |
+| Proto/REST mapping | Manual | Handled transparently |
+
+## Available SDKs
+
+Google Infrastructure publishes official client libraries for the following languages:
+
+- **Python** — `google-cloud-*` packages on PyPI
+- **Go** — `cloud.google.com/go` modules
+- **Node.js** — `@google-cloud/*` packages on npm
+- **Java** — `com.google.cloud` artifacts on Maven Central
+- **Ruby** — `google-cloud-*` gems on RubyGems
+- **.NET** — `Google.Cloud.*` packages on NuGet
+- **PHP** — `google/cloud-*` packages on Packagist
+
+## Install a library
+
+<CodeGroup>
+  ```bash Python
+  pip install google-cloud-compute google-cloud-storage
+  ```
+
+  ```bash Go
+  go get cloud.google.com/go/compute/apiv1
+  go get cloud.google.com/go/storage
+  ```
+
+  ```bash Node.js
+  npm install @google-cloud/compute @google-cloud/storage
+  ```
+
+  ```bash Java
+  # Add to pom.xml (Maven)
+  # <dependency>
+  #   <groupId>com.google.cloud</groupId>
+  #   <artifactId>google-cloud-compute</artifactId>
+  # </dependency>
+  ```
+</CodeGroup>
+
+## Explore the language guides
+
+<CardGroup cols={3}>
+  <Card title="Python SDK" icon="python" href="/sdks/python">
+    Use `google-cloud-*` libraries with type-annotated clients and async support for high-throughput workloads.
+  </Card>
+  <Card title="Go SDK" icon="golang" href="/sdks/go">
+    Leverage idiomatic Go clients with context-based cancellation and native proto support.
+  </Card>
+  <Card title="Node.js SDK" icon="node-js" href="/sdks/nodejs">
+    Use `@google-cloud/*` packages in JavaScript or TypeScript with full Promise and async/await support.
+  </Card>
+</CardGroup>
+
+## Authentication
+
+All SDKs authenticate using **Application Default Credentials (ADC)**. When your code calls a Google Infrastructure API, the library searches for credentials in this order:
+
+1. The `GOOGLE_APPLICATION_CREDENTIALS` environment variable (path to a service account key file).
+2. Credentials configured by `gcloud auth application-default login`.
+3. The metadata server, when running on Google Infrastructure (Compute Engine, Cloud Run, GKE, and so on).
+
+You do not need to write any authentication code for most use cases — instantiating a client is enough.
+
+```python
+from google.cloud import compute_v1
+
+# ADC resolves credentials automatically
+client = compute_v1.InstancesClient()
+```
+
+<Tip>
+  Google publishes two generations of Python and Java libraries: the **Cloud Client Libraries** (e.g., `google-cloud-compute`) and the older **Google API Client Libraries** (e.g., `google-api-python-client`). Always prefer the Cloud Client Libraries for new projects — they offer higher-level abstractions, better retry logic, and are actively developed. The older libraries remain available for legacy integrations.
+</Tip>

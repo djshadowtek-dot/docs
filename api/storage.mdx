@@ -1,0 +1,233 @@
+---
+title: "Storage API Reference: Buckets and Objects"
+sidebarTitle: "Storage"
+description: "REST API reference for Cloud Storage — list and create buckets, upload and download objects, and manage storage resources programmatically."
+---
+
+The Cloud Storage JSON API lets you create and manage storage buckets, upload and download objects, and configure access controls — all through standard HTTP requests. Buckets are the top-level containers for your data, and objects are the individual files stored within them. Every object is identified by its bucket name and object name (key), and every request must include a valid access token.
+
+**Base URL:** `https://storage.googleapis.com/v1`
+
+<Note>
+  Cloud Storage supports object versioning to protect against accidental deletion or overwrites. When versioning is enabled on a bucket, deleting or replacing an object creates a noncurrent version rather than permanently removing the data. Enable versioning on buckets that store critical data you cannot afford to lose.
+</Note>
+
+---
+
+## List Buckets
+
+Retrieve all buckets belonging to a project.
+
+```http
+GET https://storage.googleapis.com/v1/b?project=my-project
+Authorization: Bearer ACCESS_TOKEN
+```
+
+### Query Parameters
+
+<ParamField query="project" type="string" required>
+  The project ID whose buckets you want to list.
+</ParamField>
+
+<ParamField query="maxResults" type="integer">
+  Maximum number of buckets to return. Defaults to `1000`.
+</ParamField>
+
+<ParamField query="pageToken" type="string">
+  Token from a previous response's `nextPageToken` field to retrieve the next page.
+</ParamField>
+
+### Response
+
+```json
+{
+  "kind": "storage#buckets",
+  "items": [
+    {
+      "kind": "storage#bucket",
+      "id": "my-data-bucket",
+      "name": "my-data-bucket",
+      "location": "US-CENTRAL1",
+      "storageClass": "STANDARD",
+      "timeCreated": "2024-01-15T09:00:00.000Z"
+    }
+  ],
+  "nextPageToken": "Cg8KBm15LWJ1..."
+}
+```
+
+---
+
+## Create a Bucket
+
+Create a new storage bucket in the specified project.
+
+```http
+POST https://storage.googleapis.com/v1/b?project=my-project
+Authorization: Bearer ACCESS_TOKEN
+Content-Type: application/json
+```
+
+### Request Body Parameters
+
+<ParamField body="name" type="string" required>
+  Globally unique name for the bucket. Bucket names must be 3–63 characters, contain only lowercase letters, numbers, hyphens, and underscores, and must not look like an IP address.
+</ParamField>
+
+<ParamField body="location" type="string" required>
+  Geographic location for the bucket. Specify a region (`us-central1`), dual-region (`nam4`), or multi-region (`us`). Choose a location close to the users and compute resources that will access the data most frequently.
+</ParamField>
+
+<ParamField body="storageClass" type="string">
+  Default storage class for objects in this bucket. Options: `STANDARD`, `NEARLINE`, `COLDLINE`, `ARCHIVE`. Defaults to `STANDARD`. Use lower-cost classes for infrequently accessed data.
+</ParamField>
+
+### Example Request Body
+
+```json
+{
+  "name": "my-data-bucket",
+  "location": "us-central1",
+  "storageClass": "STANDARD"
+}
+```
+
+### Response
+
+```json
+{
+  "kind": "storage#bucket",
+  "id": "my-data-bucket",
+  "name": "my-data-bucket",
+  "location": "US-CENTRAL1",
+  "storageClass": "STANDARD",
+  "timeCreated": "2024-06-01T12:00:00.000Z",
+  "updated": "2024-06-01T12:00:00.000Z"
+}
+```
+
+---
+
+## Upload an Object
+
+Upload a file to a bucket. Choose the upload method based on file size.
+
+<Tip>
+  Use **resumable uploads** for files larger than 5 MB. Resumable uploads let you resume interrupted transfers and are significantly more reliable on slow or unreliable network connections. Simple multipart uploads are more convenient for small files but will fail entirely if the connection drops during transfer.
+</Tip>
+
+<Tabs>
+  <Tab title="Multipart Upload (≤ 5 MB)">
+    Use a single multipart request for small files. Include object metadata in the first part and the file content in the second.
+
+    ```http
+    POST https://storage.googleapis.com/upload/storage/v1/b/my-data-bucket/o?uploadType=multipart
+    Authorization: Bearer ACCESS_TOKEN
+    Content-Type: multipart/related; boundary=BOUNDARY
+
+    --BOUNDARY
+    Content-Type: application/json
+
+    {"name": "my-file.txt", "contentType": "text/plain"}
+    --BOUNDARY
+    Content-Type: text/plain
+
+    Hello, world!
+    --BOUNDARY--
+    ```
+  </Tab>
+  <Tab title="Resumable Upload (> 5 MB)">
+    Initiate the upload to receive a resumable session URI, then stream the file content to that URI.
+
+    **Step 1 — Initiate the resumable session:**
+
+    ```http
+    POST https://storage.googleapis.com/upload/storage/v1/b/my-data-bucket/o?uploadType=resumable
+    Authorization: Bearer ACCESS_TOKEN
+    Content-Type: application/json
+    X-Upload-Content-Type: video/mp4
+    X-Upload-Content-Length: 524288000
+
+    {"name": "large-video.mp4"}
+    ```
+
+    The response includes a `Location` header containing your session URI.
+
+    **Step 2 — Upload the file content:**
+
+    ```bash
+    curl -X PUT "RESUMABLE_SESSION_URI" \
+      -H "Content-Type: video/mp4" \
+      -H "Content-Length: 524288000" \
+      --upload-file large-video.mp4
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## List Objects in a Bucket
+
+Retrieve all objects stored in a bucket, with optional prefix filtering.
+
+```http
+GET https://storage.googleapis.com/v1/b/my-data-bucket/o
+Authorization: Bearer ACCESS_TOKEN
+```
+
+### Query Parameters
+
+<ParamField query="prefix" type="string">
+  Filter results to objects whose names begin with this prefix. Use this to simulate directory listings.
+</ParamField>
+
+<ParamField query="delimiter" type="string">
+  Group objects that share a common prefix up to this delimiter. For example, `/` groups objects by folder-like path segments.
+</ParamField>
+
+<ParamField query="maxResults" type="integer">
+  Maximum number of objects to return. Defaults to `1000`.
+</ParamField>
+
+<ParamField query="pageToken" type="string">
+  Token from a previous response's `nextPageToken` field to retrieve the next page.
+</ParamField>
+
+### Response
+
+```json
+{
+  "kind": "storage#objects",
+  "items": [
+    {
+      "kind": "storage#object",
+      "id": "my-data-bucket/my-file.txt/1717243200000000",
+      "name": "my-file.txt",
+      "bucket": "my-data-bucket",
+      "size": "13",
+      "contentType": "text/plain",
+      "timeCreated": "2024-06-01T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+## Delete an Object
+
+Permanently delete an object from a bucket. If the bucket has versioning enabled, this moves the object to a noncurrent state rather than destroying it.
+
+```http
+DELETE https://storage.googleapis.com/v1/b/my-data-bucket/o/my-file.txt
+Authorization: Bearer ACCESS_TOKEN
+```
+
+A successful deletion returns `204 No Content` with an empty body.
+
+To permanently delete a specific noncurrent version, include the `generation` query parameter:
+
+```http
+DELETE https://storage.googleapis.com/v1/b/my-data-bucket/o/my-file.txt?generation=1717243200000000
+Authorization: Bearer ACCESS_TOKEN
+```

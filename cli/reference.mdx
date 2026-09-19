@@ -1,0 +1,177 @@
+---
+title: "gcloud CLI Command Reference for Google Infrastructure"
+sidebarTitle: "Reference"
+description: "A condensed reference of the most-used gcloud commands for compute, storage, networking, IAM, and operations on Google Infrastructure."
+---
+
+This page is a condensed reference of the most-used `gcloud` commands, organized by service area. Use it as a quick lookup when you know what you want to do but need the exact syntax. For full flag documentation, append `--help` to any command.
+
+<Note>
+  All commands support the `--format` flag, which controls how output is rendered. Use it to pipe results into scripts or display data in a readable table:
+
+  ```bash
+  gcloud compute instances list --format=json
+  gcloud compute instances list --format=yaml
+  gcloud compute instances list --format=table
+  ```
+
+  You can also project specific fields: `--format="table(name, status, zone)"`.
+</Note>
+
+<Tabs>
+  <Tab title="Compute">
+    Manage virtual machine instances across zones.
+
+    ```bash
+    # List all instances in the project
+    gcloud compute instances list
+
+    # Create a new instance
+    gcloud compute instances create NAME --zone=ZONE --machine-type=TYPE
+
+    # Show detailed metadata for an instance
+    gcloud compute instances describe NAME --zone=ZONE
+
+    # Start a stopped instance
+    gcloud compute instances start NAME --zone=ZONE
+
+    # Stop a running instance
+    gcloud compute instances stop NAME --zone=ZONE
+
+    # Permanently delete an instance
+    gcloud compute instances delete NAME --zone=ZONE
+
+    # Open an SSH session to an instance
+    gcloud compute ssh NAME --zone=ZONE
+    ```
+
+    **Common machine types:** `e2-micro`, `e2-standard-4`, `n2-standard-8`, `c2-standard-16`
+
+    **Common zones:** `us-central1-a`, `us-east1-b`, `europe-west1-c`, `asia-east1-a`
+  </Tab>
+
+  <Tab title="Storage">
+    Manage Cloud Storage buckets and objects using the `gsutil` command that ships with the Cloud SDK.
+
+    ```bash
+    # List all buckets in the project
+    gsutil ls
+
+    # Create a new bucket in a specific region
+    gsutil mb -l REGION gs://BUCKET_NAME
+
+    # Upload a local file to a bucket
+    gsutil cp LOCAL_FILE gs://BUCKET_NAME/
+
+    # Download a file from a bucket
+    gsutil cp gs://BUCKET_NAME/FILE LOCAL_PATH
+
+    # Delete a specific object
+    gsutil rm gs://BUCKET_NAME/FILE
+
+    # Delete an empty bucket
+    gsutil rb gs://BUCKET_NAME
+    ```
+
+    To upload an entire directory recursively, add the `-r` flag:
+
+    ```bash
+    gsutil cp -r ./my-directory gs://BUCKET_NAME/
+    ```
+  </Tab>
+
+  <Tab title="Networking">
+    Create and inspect VPC networks and firewall rules.
+
+    ```bash
+    # List all VPC networks
+    gcloud compute networks list
+
+    # Create a VPC network with custom subnet mode
+    gcloud compute networks create NAME --subnet-mode=custom
+
+    # List all firewall rules in the project
+    gcloud compute firewall-rules list
+
+    # Create a firewall rule to allow traffic on a specific port
+    gcloud compute firewall-rules create NAME --network=NET --allow=tcp:PORT
+    ```
+
+    To allow multiple protocols or port ranges in a single rule:
+
+    ```bash
+    gcloud compute firewall-rules create allow-web \
+      --network=default \
+      --allow=tcp:80,tcp:443 \
+      --source-ranges=0.0.0.0/0
+    ```
+  </Tab>
+
+  <Tab title="IAM">
+    Inspect and modify IAM policies, and manage service accounts.
+
+    ```bash
+    # View the IAM policy for a project
+    gcloud projects get-iam-policy PROJECT_ID
+
+    # Grant a role to a member
+    gcloud projects add-iam-policy-binding PROJECT_ID \
+      --member=MEMBER \
+      --role=ROLE
+
+    # List all service accounts in the project
+    gcloud iam service-accounts list
+
+    # Create a new service account
+    gcloud iam service-accounts create NAME
+    ```
+
+    **Member formats:**
+    - User account: `user:alice@example.com`
+    - Service account: `serviceAccount:my-sa@PROJECT_ID.iam.gserviceaccount.com`
+    - Google group: `group:devs@example.com`
+
+    **Common roles:** `roles/compute.admin`, `roles/storage.objectAdmin`, `roles/iam.serviceAccountUser`
+  </Tab>
+
+  <Tab title="Operations">
+    Query logs and inspect monitoring dashboards.
+
+    ```bash
+    # Tail recent error logs
+    gcloud logging read "severity>=ERROR" --limit=50
+
+    # List all monitoring dashboards
+    gcloud monitoring dashboards list
+    ```
+
+    Filter logs by resource type and time range:
+
+    ```bash
+    gcloud logging read \
+      'resource.type="gce_instance" AND severity>=WARNING' \
+      --limit=100 \
+      --freshness=1h
+    ```
+
+    Write a structured log entry from a script:
+
+    ```bash
+    gcloud logging write my-log '{"message": "Deploy completed", "env": "prod"}' \
+      --payload-type=json \
+      --severity=INFO
+    ```
+  </Tab>
+</Tabs>
+
+<Tip>
+  Run `--help` on any command or subgroup to read inline documentation without leaving the terminal:
+
+  ```bash
+  gcloud compute instances create --help
+  gcloud compute --help
+  gcloud --help
+  ```
+
+  The help output includes all available flags, their defaults, and usage examples.
+</Tip>

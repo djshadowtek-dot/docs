@@ -1,13 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
+  "projectType": "infrastructure",
+  "projectName": "Google Infrastructure",
+  "projectDescription": "Enterprise infrastructure platform providing scalable compute, networking, storage, and operations tooling for modern organizations.",
   "theme": "aspen",
-  "name": "Google Infrastructure",
-  "colors": {
-    "primary": "#ef7025",
-    "light": "#eec9bc",
-    "dark": "#4fa1ab"
-  },
-  "favicon": "/favicon.svg",
+  "primaryColor": "#ef7025",
+  "lightColor": "#eec9bc",
+  "darkColor": "#4fa1ab",
   "navigation": {
     "tabs": [
       {
@@ -120,23 +118,27 @@
       }
     ]
   },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:support@google.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Console",
-      "href": "https://console.cloud.google.com"
-    }
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/google",
-      "github": "https://github.com/google"
-    }
-  }
+  "keyFeatures": [
+    "Scalable virtual machine instances with auto-scaling",
+    "Global virtual private cloud (VPC) networking",
+    "Managed object, block, and database storage",
+    "Identity and Access Management (IAM) with fine-grained permissions",
+    "Built-in monitoring, logging, and alerting",
+    "Serverless and container-based compute options",
+    "Load balancing and traffic management",
+    "Encryption at rest and in transit",
+    "Multi-region and availability zone support",
+    "RESTful API and multi-language SDKs"
+  ],
+  "publicApiSurface": [
+    "GET /v1/instances — List compute instances",
+    "POST /v1/instances — Create a compute instance",
+    "DELETE /v1/instances/{id} — Terminate an instance",
+    "GET /v1/storage/buckets — List storage buckets",
+    "POST /v1/storage/buckets — Create a storage bucket",
+    "GET /v1/networks/vpcs — List VPCs",
+    "POST /v1/iam/policies — Create an IAM policy",
+    "GET /v1/operations/logs — Query logs",
+    "GET /v1/operations/metrics — Query metrics"
+  ]
 }

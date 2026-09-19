@@ -1,0 +1,89 @@
+---
+title: "Authenticating Google Infrastructure API Requests"
+sidebarTitle: "Authentication"
+description: "Authenticate API requests using OAuth 2.0 access tokens and service accounts. Never send passwords directly in API requests."
+---
+
+Every request to the Google Infrastructure API must carry a valid OAuth 2.0 access token in the `Authorization` header. The API does not accept username/password credentials — tokens are the only supported authentication mechanism. Short-lived tokens limit the blast radius of a compromised credential, and service accounts let your applications authenticate without any human interaction at runtime.
+
+## Getting an Access Token (Testing)
+
+During local development and testing, use the `gcloud` CLI to generate a short-lived access token tied to your personal Google account. This is the fastest way to make exploratory API calls without configuring a service account.
+
+```bash
+gcloud auth print-access-token
+```
+
+The token is valid for one hour. Include it in the `Authorization` header as a Bearer token:
+
+```bash
+curl -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  https://compute.googleapis.com/v1/projects/my-project/zones/us-central1-a/instances
+```
+
+<Warning>
+  Never use personal access tokens in production applications or automated pipelines. Personal tokens are tied to your user account and will break if your account changes or is offboarded. Use service accounts for all non-interactive workloads.
+</Warning>
+
+## Service Accounts for Production
+
+Production applications must authenticate with service accounts — identities that belong to an application rather than a person. Follow these steps to set up service account authentication.
+
+<Steps>
+  <Step title="Create a service account">
+    Open the [IAM & Admin Console](https://console.cloud.google.com/iam-admin/serviceaccounts) and create a new service account for your application. Give it a descriptive name that identifies the workload, such as `api-backend-prod`.
+  </Step>
+  <Step title="Grant the necessary IAM roles">
+    Assign only the roles your application needs — follow the principle of least privilege. For example, grant `roles/compute.instanceAdmin.v1` if the service account only needs to manage VM instances. See the [IAM reference](/api/iam) for available roles.
+  </Step>
+  <Step title="Configure Application Default Credentials">
+    Use Application Default Credentials (ADC) in your code. Client libraries automatically discover credentials at runtime without requiring you to hard-code token logic.
+
+    ```python
+    from google.cloud import compute_v1
+
+    # ADC automatically picks up credentials — no token management required
+    instances_client = compute_v1.InstancesClient()
+
+    request = compute_v1.ListInstancesRequest(
+        project="my-project",
+        zone="us-central1-a",
+    )
+    for instance in instances_client.list(request=request):
+        print(instance.name)
+    ```
+  </Step>
+</Steps>
+
+## Application Default Credentials Discovery Order
+
+When you call a Google Cloud client library without explicitly providing credentials, ADC searches for credentials in the following order:
+
+1. **`GOOGLE_APPLICATION_CREDENTIALS` environment variable** — if set, ADC loads the service account JSON key file at that path.
+2. **gcloud ADC** — if you have run `gcloud auth application-default login`, ADC uses the credentials stored by gcloud. Suitable for local development.
+3. **Metadata server** — when your code runs on a Google Cloud resource (Compute Engine, Cloud Run, GKE, etc.), ADC retrieves a token from the instance metadata server automatically. No key files are needed.
+
+Set the environment variable to point to a key file when running outside GCP:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account-key.json"
+```
+
+<Warning>
+  Never commit service account JSON key files to source control. A leaked key file grants full access to every resource the service account can reach. Add `*.json` entries to your `.gitignore` and consider using a secrets manager such as Secret Manager to distribute credentials to your runtime environment.
+</Warning>
+
+<Tip>
+  If your workloads run outside of Google Cloud — for example in another cloud provider or on-premises — use **Workload Identity Federation** instead of downloading key files. Workload Identity Federation lets external workloads exchange their native identity tokens (AWS IAM, Azure AD, GitHub Actions OIDC, etc.) for short-lived Google credentials, eliminating the need to manage or rotate service account key files entirely.
+</Tip>
+
+## Authentication Error Codes
+
+When authentication fails, the API returns one of these HTTP status codes:
+
+| Status | Meaning | Common Causes |
+|---|---|---|
+| `401 Unauthorized` | The token is invalid, malformed, or expired | Token older than one hour, wrong project, missing `Authorization` header |
+| `403 Forbidden` | The token is valid but lacks permission | Service account missing required IAM role, API not enabled for the project |
+
+To resolve a `401`, generate a fresh token with `gcloud auth print-access-token` or verify that your ADC credentials are current. To resolve a `403`, check the IAM bindings for the authenticating principal and ensure the required API is enabled in the [API Library](https://console.cloud.google.com/apis/library).

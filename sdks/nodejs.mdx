@@ -1,0 +1,122 @@
+---
+title: "Google Infrastructure Node.js SDK: Getting Started"
+sidebarTitle: "Node.js"
+description: "Install and use the Google Infrastructure Node.js client libraries to manage compute instances and Cloud Storage from JavaScript or TypeScript applications."
+---
+
+The Google Infrastructure Node.js SDK is published as a set of `@google-cloud/*` packages on npm. Each package targets a specific service and provides a fully Promise-based API that works with both `async/await` syntax and raw Promise chains. The libraries support CommonJS and ESM module formats, ship with TypeScript type definitions, and resolve credentials through Application Default Credentials automatically.
+
+## Install the packages
+
+Install only the packages your application needs. The following command covers Compute Engine and Cloud Storage.
+
+```bash
+npm install @google-cloud/compute @google-cloud/storage
+```
+
+## Authenticate with ADC
+
+The Node.js SDK uses **Application Default Credentials** automatically when you instantiate any client. For local development, run the following command once to store credentials that the library will pick up:
+
+```bash
+gcloud auth application-default login
+```
+
+In production environments running on Google Infrastructure (Compute Engine, Cloud Run, GKE), the metadata server provides credentials without any configuration. For CI/CD pipelines or external environments, set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to the path of your service account key file.
+
+## Create a VM instance
+
+The following function creates a Compute Engine instance and polls the zone operation until it reaches the `DONE` state.
+
+```javascript
+const compute = require('@google-cloud/compute');
+
+async function createInstance(projectId, zone, instanceName) {
+  const instancesClient = new compute.InstancesClient();
+
+  const [response] = await instancesClient.insert({
+    project: projectId,
+    zone: zone,
+    instanceResource: {
+      name: instanceName,
+      machineType: `zones/${zone}/machineTypes/e2-standard-4`,
+      disks: [{
+        boot: true,
+        autoDelete: true,
+        initializeParams: {
+          sourceImage: 'projects/debian-cloud/global/images/family/debian-11',
+          diskSizeGb: '50',
+        },
+      }],
+      networkInterfaces: [{ network: 'global/networks/default' }],
+    },
+  });
+
+  let operation = response.latestResponse;
+  const operationsClient = new compute.ZoneOperationsClient();
+
+  while (operation.status !== 'DONE') {
+    [operation] = await operationsClient.wait({
+      operation: operation.name,
+      project: projectId,
+      zone: zone,
+    });
+  }
+
+  console.log(`Instance ${instanceName} created.`);
+}
+```
+
+Invoke the function and handle rejections with a top-level `catch`:
+
+```javascript
+createInstance('my-gcp-project', 'us-central1-a', 'web-server-01')
+  .catch(err => {
+    console.error('Failed to create instance:', err.message);
+    process.exit(1);
+  });
+```
+
+## Upload a file to Cloud Storage
+
+The `@google-cloud/storage` package wraps multipart uploads behind a simple `upload` method that handles resumable uploads for large files automatically.
+
+```javascript
+const { Storage } = require('@google-cloud/storage');
+
+async function uploadFile(bucketName, filePath, destFileName) {
+  const storage = new Storage();
+  await storage.bucket(bucketName).upload(filePath, {
+    destination: destFileName,
+  });
+  console.log(`${filePath} uploaded to ${bucketName}/${destFileName}`);
+}
+```
+
+To upload from a buffer or a stream instead of a file path, use the `save` method on a `File` object:
+
+```javascript
+const file = storage.bucket(bucketName).file(destFileName);
+await file.save(Buffer.from('hello world'), { contentType: 'text/plain' });
+```
+
+## Use TypeScript
+
+All `@google-cloud/*` packages ship bundled TypeScript declarations. Import named exports to get full type checking and IDE autocompletion without any additional `@types/*` packages.
+
+```typescript
+import { InstancesClient } from '@google-cloud/compute';
+
+const client = new InstancesClient();
+
+async function listInstances(projectId: string, zone: string): Promise<void> {
+  const [instances] = await client.list({ project: projectId, zone });
+  for (const instance of instances) {
+    console.log(instance.name, instance.status);
+  }
+}
+```
+
+<Tip>
+  Use `@google-cloud/compute` **v4 or later** for new projects. Starting with v4, the package ships as a dual-mode package that supports both CommonJS (`require`) and ESM (`import`) without additional configuration. If you are migrating from an older version, review the [migration guide](https://github.com/googleapis/google-cloud-node/blob/main/packages/google-cloud-compute/CHANGELOG.md) for breaking API changes introduced in v4.
+</Tip>
