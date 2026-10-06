@@ -138,5 +138,10 @@
       "x": "https://x.com/google",
       "github": "https://github.com/google"
     }
+  },
+  "errors": {
+    "404": {
+      "redirect": false
+    }
   }
 }
