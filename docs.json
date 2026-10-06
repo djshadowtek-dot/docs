@@ -143,5 +143,6 @@
     "404": {
       "redirect": false
     }
-  }
+  },
+  "description": "Test benchmark"
 }
