@@ -144,5 +144,22 @@
       "redirect": false
     }
   },
-  "description": "Test benchmark"
+  "description": "Test benchmark",
+  "api": {
+    "asyncapi": ".atlas-analysis.json",
+    "playground": {
+      "proxy": false
+    },
+    "examples": {
+      "languages": [
+        ".py"
+      ]
+    },
+    "mdx": {
+      "auth": {
+        "name": "Admin"
+      },
+      "server": "Https://the-Awesome.ai/"
+    }
+  }
 }

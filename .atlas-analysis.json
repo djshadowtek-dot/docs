@@ -1,11 +1,11 @@
 {
-  "projectType": "infrastructure",
-  "projectName": "Google Infrastructure",
-  "projectDescription": "Enterprise infrastructure platform providing scalable compute, networking, storage, and operations tooling for modern organizations.",
-  "theme": "aspen",
-  "primaryColor": "#ef7025",
-  "lightColor": "#eec9bc",
-  "darkColor": "#4fa1ab",
+  "projectType": "ai-ml",
+  "projectName": "The Awesome",
+  "projectDescription": "An AI-powered data innovation platform that simplifies how teams discover, analyze, and act on data insights.",
+  "theme": "willow",
+  "primaryColor": "#969696",
+  "lightColor": "#161616",
+  "darkColor": "#c6c6c6",
   "navigation": {
     "tabs": [
       {
@@ -16,58 +16,31 @@
             "pages": [
               "introduction",
               "quickstart",
-              "architecture-overview"
+              "account-setup"
             ]
           },
           {
             "group": "Core Concepts",
             "pages": [
-              "concepts/resources",
-              "concepts/networking",
-              "concepts/identity-access",
-              "concepts/regions-zones"
+              "concepts/data-innovation",
+              "concepts/ai-models",
+              "concepts/workflows"
             ]
           },
           {
-            "group": "Compute",
+            "group": "Guides",
             "pages": [
-              "compute/instances",
-              "compute/scaling",
-              "compute/containers",
-              "compute/serverless"
+              "guides/connecting-data",
+              "guides/running-analysis",
+              "guides/exporting-results",
+              "guides/ai-trends"
             ]
           },
           {
-            "group": "Storage & Data",
+            "group": "Configuration",
             "pages": [
-              "storage/object-storage",
-              "storage/block-storage",
-              "storage/databases"
-            ]
-          },
-          {
-            "group": "Networking",
-            "pages": [
-              "networking/vpc",
-              "networking/load-balancing",
-              "networking/dns",
-              "networking/vpn"
-            ]
-          },
-          {
-            "group": "Security & Identity",
-            "pages": [
-              "security/iam",
-              "security/encryption",
-              "security/compliance"
-            ]
-          },
-          {
-            "group": "Operations",
-            "pages": [
-              "operations/monitoring",
-              "operations/logging",
-              "operations/alerts"
+              "configuration/settings",
+              "configuration/integrations"
             ]
           }
         ]
@@ -76,42 +49,19 @@
         "tab": "API Reference",
         "groups": [
           {
-            "group": "API Overview",
+            "group": "Overview",
             "pages": [
               "api/overview",
-              "api/authentication",
-              "api/rate-limits"
+              "api/authentication"
             ]
           },
           {
             "group": "Endpoints",
             "pages": [
-              "api/compute",
-              "api/storage",
-              "api/networking",
-              "api/iam"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "CLI & SDKs",
-        "groups": [
-          {
-            "group": "Command Line",
-            "pages": [
-              "cli/installation",
-              "cli/configuration",
-              "cli/reference"
-            ]
-          },
-          {
-            "group": "SDKs",
-            "pages": [
-              "sdks/overview",
-              "sdks/python",
-              "sdks/go",
-              "sdks/nodejs"
+              "api/data-sources",
+              "api/analysis",
+              "api/results",
+              "api/webhooks"
             ]
           }
         ]
@@ -119,26 +69,20 @@
     ]
   },
   "keyFeatures": [
-    "Scalable virtual machine instances with auto-scaling",
-    "Global virtual private cloud (VPC) networking",
-    "Managed object, block, and database storage",
-    "Identity and Access Management (IAM) with fine-grained permissions",
-    "Built-in monitoring, logging, and alerting",
-    "Serverless and container-based compute options",
-    "Load balancing and traffic management",
-    "Encryption at rest and in transit",
-    "Multi-region and availability zone support",
-    "RESTful API and multi-language SDKs"
+    "AI-powered data analysis and discovery",
+    "Simplified data innovation workflows",
+    "Automated insight generation",
+    "Data source integrations",
+    "Real-time analysis results",
+    "Webhook and API access"
   ],
   "publicApiSurface": [
-    "GET /v1/instances — List compute instances",
-    "POST /v1/instances — Create a compute instance",
-    "DELETE /v1/instances/{id} — Terminate an instance",
-    "GET /v1/storage/buckets — List storage buckets",
-    "POST /v1/storage/buckets — Create a storage bucket",
-    "GET /v1/networks/vpcs — List VPCs",
-    "POST /v1/iam/policies — Create an IAM policy",
-    "GET /v1/operations/logs — Query logs",
-    "GET /v1/operations/metrics — Query metrics"
+    "GET /data-sources",
+    "POST /data-sources",
+    "POST /analysis/run",
+    "GET /analysis/{id}/results",
+    "GET /results",
+    "POST /webhooks",
+    "DELETE /webhooks/{id}"
   ]
 }
